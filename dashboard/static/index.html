@@ -74,6 +74,12 @@
             box-shadow: 0 0 16px rgba(74, 222, 128, 0.25);
         }
         .status-pill.gpu-on .dot { background: #4ade80; box-shadow: 0 0 10px #4ade80; }
+        .status-pill.gpu-idle {
+            border-color: rgba(251, 191, 36, 0.55); color: #fbbf24;
+            background: rgba(251, 191, 36, 0.09);
+            box-shadow: 0 0 16px rgba(251, 191, 36, 0.30);
+        }
+        .status-pill.gpu-idle .dot { background: #fbbf24; box-shadow: 0 0 10px #fbbf24; }
         @keyframes pulse { 50% { opacity: 0.35; } }
 
         .container { max-width: 980px; margin: 0 auto; padding: 34px 20px 60px; }
@@ -473,12 +479,21 @@
         // ================= SYSTEM CHECK / SETTINGS / PROGETTI =================
         fetch('/api/system-check').then(r => r.json()).then(data => {
             const pill = document.getElementById('hdr-status');
+            pill.classList.remove('gpu-on', 'gpu-idle');
             if (data.gpu_available) {
                 const name = data.gpu_name || 'NVIDIA GPU';
-                document.getElementById('gpu-status').innerHTML =
-                    `🚀 <strong>GPU attiva: ${name}</strong> — pipeline accelerata hardware.`;
-                pill.textContent = `GPU-ACTIVE [${name}]` + (data.graph_exists ? ' · GRAPH READY' : '');
-                pill.classList.add('gpu-on');
+                if (data.force_cpu) {
+                    // GPU presente ma pipeline forzata a CPU via settings
+                    document.getElementById('gpu-status').innerHTML =
+                        `⚠️ <strong style="color:#fbbf24;">GPU ${name} in pausa</strong> — forzatura CPU attiva nelle impostazioni.`;
+                    pill.textContent = `GPU-IDLE [CPU FORZATA]` + (data.graph_exists ? ' · GRAPH READY' : '');
+                    pill.classList.add('gpu-idle');
+                } else {
+                    document.getElementById('gpu-status').innerHTML =
+                        `🚀 <strong>GPU attiva: ${name}</strong> — pipeline accelerata hardware.`;
+                    pill.textContent = `GPU-ACTIVE [${name}]` + (data.graph_exists ? ' · GRAPH READY' : '');
+                    pill.classList.add('gpu-on');
+                }
             } else {
                 document.getElementById('gpu-status').innerHTML =
                     '💻 <strong>Modalità CPU</strong> — nessuna GPU rilevata, esecuzione standard.';

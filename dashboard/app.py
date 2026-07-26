@@ -135,7 +135,14 @@ def detect_gpu():
 def system_check():
     gpu, gpu_name = detect_gpu()
     graph_exists = os.path.exists(os.path.join(OUT_DIR, "graph_with_metrics.json"))
-    return {"gpu_available": gpu, "gpu_name": gpu_name, "graph_exists": graph_exists}
+    force_cpu = False
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            force_cpu = json.load(open(SETTINGS_FILE)).get("force_cpu", False)
+        except Exception:
+            pass
+    return {"gpu_available": gpu, "gpu_name": gpu_name, "graph_exists": graph_exists,
+            "force_cpu": force_cpu}
 
 
 @app.post("/api/upload")
