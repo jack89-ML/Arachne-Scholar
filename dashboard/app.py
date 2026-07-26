@@ -188,20 +188,57 @@ def get_graph():
     return JSONResponse(status_code=404, content={"error": "Grafo non trovato."})
 
 
+def _backfill_legacy_run():
+    """Se il registry e' vuoto ma esiste gia' un grafo sul disco, lo registra
+    come run 'legacy' cosi' la griglia progetti della Home lo mostra subito."""
+    metrics_path = os.path.join(OUT_DIR, "graph_with_metrics.json")
+    conn = db()
+    n = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    if n == 0 and os.path.exists(metrics_path):
+        try:
+            with open(metrics_path, encoding="utf-8") as f:
+                g = json.load(f)
+            ts = datetime.fromtimestamp(os.path.getmtime(metrics_path), tz=timezone.utc).isoformat()
+            cur = conn.execute(
+                "INSERT INTO runs (ts, lang, status, nodes, edges, graph_path) VALUES (?, ?, ?, ?, ?, ?)",
+                (ts, g.get("meta", {}).get("lang", "en"), "done",
+                 len(g.get("nodes", [])), len(g.get("edges", [])), metrics_path),
+            )
+            rid = cur.lastrowid
+            shutil.copy2(metrics_path, os.path.join(RUNS_DIR, f"run_{rid}_graph.json"))
+            conn.commit()
+        except Exception:
+            pass
+    conn.close()
+
+
 @app.get("/api/runs")
 def list_runs():
     try:
+        _backfill_legacy_run()
         conn = db()
         rows = conn.execute(
             "SELECT id, ts, lang, status, nodes, edges FROM runs ORDER BY id DESC LIMIT 20"
         ).fetchall()
         conn.close()
         return {"runs": [
-            {"id": r[0], "ts": r[1], "lang": r[2], "status": r[3], "nodes": r[4], "edges": r[5]}
+            {"id": r[0], "ts": r[1], "lang": r[2], "status": r[3], "nodes": r[4], "edges": r[5],
+             "has_graph": os.path.exists(os.path.join(RUNS_DIR, f"run_{r[0]}_graph.json"))}
             for r in rows
         ]}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/api/runs/{run_id}/activate")
+def activate_run(run_id: int):
+    """Promuove un run archiviato a grafo attivo (aperto dalla griglia progetti)."""
+    archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
+    if not os.path.exists(archive):
+        return JSONResponse(status_code=404, content={"error": f"Archivio run #{run_id} non trovato."})
+    shutil.copy2(archive, os.path.join(OUT_DIR, "graph_with_metrics.json"))
+    shutil.copy2(archive, os.path.join(OUT_DIR, "graph.json"))
+    return {"status": "activated", "run_id": run_id}
 
 
 # ------------------------------------------------------- export GEXF/GraphML

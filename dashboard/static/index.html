@@ -61,10 +61,7 @@
             display: flex; align-items: center; justify-content: center;
             font-size: 18px; box-shadow: 0 0 18px rgba(168, 85, 247, 0.55);
         }
-        .brand h1 {
-            font-family: 'JetBrains Mono', monospace; font-size: 15px; letter-spacing: 3px;
-            margin: 0; color: #fff;
-        }
+        .brand h1 { font-family: 'JetBrains Mono', monospace; font-size: 15px; letter-spacing: 3px; margin: 0; color: #fff; }
         .brand h1 span { color: var(--violet); }
         .status-pill {
             font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1px;
@@ -74,7 +71,9 @@
         }
         .status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: pulse 2s infinite; }
         @keyframes pulse { 50% { opacity: 0.35; } }
-        .header-actions { margin-left: auto; display: flex; gap: 10px; }
+        /* FIX #3: export visibili SOLO dentro la dashboard grafo */
+        .header-actions { margin-left: auto; display: none; gap: 10px; }
+        .header-actions.visible { display: flex; }
         .btn-export {
             font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1px;
             padding: 8px 16px; border-radius: 8px; cursor: pointer; text-decoration: none;
@@ -86,7 +85,7 @@
         .btn-export.cyan:hover { box-shadow: 0 0 16px rgba(34, 211, 238, 0.4); }
 
         /* ---- PANNELLI FLUTTUANTI GLASS ---- */
-        .container { max-width: 860px; margin: 0 auto; padding: 34px 20px 60px; }
+        .container { max-width: 900px; margin: 0 auto; padding: 34px 20px 60px; }
         .container-wide { max-width: 96vw; }
         .card {
             background: var(--glass);
@@ -115,24 +114,72 @@
             box-shadow: 0 0 20px rgba(168, 85, 247, 0.35); transition: all 0.2s;
         }
         .btn:hover { box-shadow: 0 0 32px rgba(168, 85, 247, 0.65); transform: translateY(-1px); }
-        .btn.ghost {
-            background: transparent; border: 1px solid var(--glass-border); color: var(--violet-soft);
-            box-shadow: none;
-        }
+        .btn.ghost { background: transparent; border: 1px solid var(--glass-border); color: var(--violet-soft); box-shadow: none; }
+        .btn.small { padding: 8px 16px; font-size: 12px; margin-top: 8px; }
         select.btn {
             background: rgba(168, 85, 247, 0.10); color: var(--text);
             border: 1px solid var(--glass-border); box-shadow: none;
+        }
+        /* FIX #2: dropdown scuro coerente col tema */
+        select.btn option, select option {
+            background: var(--bg-deep) !important;
+            color: var(--text) !important;
         }
         input[type="file"] {
             font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim);
             background: rgba(0,0,0,0.3); border: 1px dashed var(--glass-border);
             border-radius: 10px; padding: 14px; width: 100%; margin-bottom: 6px;
         }
-        .resume-box {
-            border: 1px solid rgba(34, 211, 238, 0.35); background: rgba(34, 211, 238, 0.05);
-            border-radius: 14px; padding: 16px 20px; margin-bottom: 20px;
+
+        /* ---- FIX #4: GRIGLIA PROGETTI ---- */
+        .projects-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 16px; margin-bottom: 24px;
         }
-        .resume-box p { color: var(--cyan); margin: 0 0 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+        .project-card {
+            background: var(--glass); backdrop-filter: blur(18px);
+            border: 1px solid var(--glass-border); border-radius: 16px;
+            padding: 18px; transition: all 0.25s; position: relative;
+        }
+        .project-card:hover {
+            border-color: rgba(168, 85, 247, 0.6);
+            box-shadow: 0 0 26px rgba(168, 85, 247, 0.25);
+            transform: translateY(-3px);
+        }
+        .project-card .p-id {
+            font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--cyan);
+            letter-spacing: 1px;
+        }
+        .project-card .p-date { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+        .project-card .p-stats {
+            font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #fff;
+            margin: 12px 0 4px;
+        }
+        .project-card .p-lang {
+            position: absolute; top: 14px; right: 14px;
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1px;
+            padding: 3px 9px; border-radius: 10px; text-transform: uppercase;
+            color: var(--violet-soft); border: 1px solid var(--glass-border);
+            background: rgba(168, 85, 247, 0.10);
+        }
+        .project-card .p-open { width: 100%; }
+        .project-card.disabled { opacity: 0.45; pointer-events: none; }
+        .project-card.new-project {
+            border: 2px dashed rgba(34, 211, 238, 0.5);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            min-height: 150px; cursor: pointer; text-align: center;
+        }
+        .project-card.new-project:hover { box-shadow: 0 0 26px rgba(34, 211, 238, 0.3); border-color: var(--cyan); }
+        .project-card.new-project .plus {
+            font-size: 38px; color: var(--cyan); font-weight: 300;
+            text-shadow: 0 0 18px rgba(34, 211, 238, 0.7);
+        }
+        .project-card.new-project .np-label {
+            font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px;
+            color: var(--cyan); margin-top: 6px;
+        }
+        #upload-panel { display: none; }
+        #upload-panel.open { display: block; animation: fadeIn 0.4s ease; }
 
         /* ---- CONSOLE LOG ---- */
         .log-window {
@@ -178,28 +225,29 @@
             border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 14px;
             background: rgba(5, 3, 10, 0.6);
         }
-        #graph-notice {
-            font-family: 'JetBrains Mono', monospace; font-size: 12px;
-            color: var(--cyan); margin: 4px 0 10px;
-        }
+        #graph-notice { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--cyan); margin: 4px 0 10px; }
         .sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
-        .sidebar .card { padding: 22px; margin-bottom: 0; flex: 1; }
+        .sidebar .card { padding: 22px; margin-bottom: 0; }
+        .sidebar .card.grow { flex: 1; }
         .sidebar-title {
             font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px;
             color: var(--cyan); margin-bottom: 16px; text-transform: uppercase;
         }
         .sidebar-placeholder { color: var(--text-dim); font-size: 13px; line-height: 1.6; }
         .metric-row { margin-bottom: 14px; border-bottom: 1px solid rgba(168,85,247,0.12); padding-bottom: 10px; }
-        .metric-label {
-            font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 2px;
-            text-transform: uppercase; color: var(--text-dim);
-        }
-        .metric-value {
-            font-family: 'JetBrains Mono', monospace; font-size: 17px; color: #fff;
-            text-shadow: 0 0 12px rgba(168, 85, 247, 0.5); word-break: break-word;
-        }
+        .metric-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); }
+        .metric-value { font-family: 'JetBrains Mono', monospace; font-size: 17px; color: #fff; text-shadow: 0 0 12px rgba(168, 85, 247, 0.5); word-break: break-word; }
         .metric-value.cyan { color: var(--cyan); text-shadow: 0 0 12px rgba(34, 211, 238, 0.5); }
         .metric-value.violet { color: var(--violet-soft); }
+
+        /* ---- FIX #1: pannello FISICA ---- */
+        .physics-row { display: flex; flex-direction: column; gap: 10px; }
+        .physics-row select { width: 100%; }
+        #btn-freeze { width: 100%; margin-top: 0; }
+        #btn-freeze.frozen {
+            background: rgba(34, 211, 238, 0.10); color: var(--cyan);
+            border: 1px solid rgba(34, 211, 238, 0.45); box-shadow: 0 0 14px rgba(34, 211, 238, 0.25);
+        }
 
         @media (max-width: 900px) {
             .graph-layout { flex-direction: column; }
@@ -218,7 +266,7 @@
             <h1>ARACHNE <span>//</span> SCHOLAR</h1>
         </div>
         <div class="status-pill"><span class="dot"></span><span id="hdr-status">LINK...</span></div>
-        <div class="header-actions">
+        <div class="header-actions" id="header-actions">
             <a class="btn-export" href="/api/export/gexf" download>⬇ GEXF</a>
             <a class="btn-export cyan" href="/api/export/graphml" download>⬇ GRAPHML</a>
         </div>
@@ -226,28 +274,33 @@
 
     <div class="container" id="main-container">
 
-        <!-- ============ STEP 1: ONBOARDING ============ -->
+        <!-- ============ STEP 1: HOME MULTI-PROGETTO ============ -->
         <div id="step-1" class="wizard-step active">
             <div class="card">
-                <span class="mono-label">// system_check</span>
-                <h2>Console di <em>Ingestione</em></h2>
+                <span class="mono-label">// project_grid</span>
+                <h2>Console dei <em>Progetti</em></h2>
                 <p class="sub" id="gpu-status">Scansione hardware in corso...</p>
 
-                <div class="resume-box" id="resume-section" style="display: none;">
-                    <p>▸ GRAFO ESISTENTE RILEVATO NEL WORKSPACE</p>
-                    <button class="btn ghost" onclick="goToGraph()">Apri Dashboard Analisi →</button>
+                <div class="projects-grid" id="projects-grid">
+                    <!-- Card Nuovo Progetto (sempre presente) -->
+                    <div class="project-card new-project" id="card-new-project" onclick="toggleUploadPanel()">
+                        <div class="plus">+</div>
+                        <div class="np-label">NUOVO PROGETTO</div>
+                    </div>
                 </div>
 
-                <span class="mono-label" style="margin-top: 22px;">// nuovo_progetto</span>
-                <p class="sub">Carica i paper accademici (PDF). Il workspace precedente verrà azzerato automaticamente.</p>
-                <input type="file" id="file-input" multiple accept=".pdf">
-                <div style="display: flex; gap: 12px; align-items: center;">
-                    <select id="lang-select" class="btn">
-                        <option value="en">EN — Inglese</option>
-                        <option value="it">IT — Italiano</option>
-                        <option value="es">ES — Spagnolo</option>
-                    </select>
-                    <button class="btn" onclick="uploadFiles()">Carica e Inizia ⚡</button>
+                <div id="upload-panel">
+                    <span class="mono-label" style="margin-top: 8px;">// ingestione_corpus</span>
+                    <p class="sub">Carica i paper accademici (PDF). Il workspace precedente verrà azzerato automaticamente.</p>
+                    <input type="file" id="file-input" multiple accept=".pdf">
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <select id="lang-select" class="btn">
+                            <option value="en">EN — Inglese</option>
+                            <option value="it">IT — Italiano</option>
+                            <option value="es">ES — Spagnolo</option>
+                        </select>
+                        <button class="btn" onclick="uploadFiles()">Carica e Inizia ⚡</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -288,7 +341,18 @@
                     <div id="mynetwork"></div>
                 </div>
                 <div class="sidebar">
+                    <!-- FIX #1: PANNELLO FISICA -->
                     <div class="card">
+                        <div class="sidebar-title">// Fisica</div>
+                        <div class="physics-row">
+                            <select id="physics-solver" class="btn">
+                                <option value="barnesHut">barnesHut</option>
+                                <option value="forceAtlas2Based">forceAtlas2Based</option>
+                            </select>
+                            <button class="btn ghost" id="btn-freeze" onclick="togglePhysics()">❄ Congela Fisica</button>
+                        </div>
+                    </div>
+                    <div class="card grow">
                         <div class="sidebar-title">// Plancia di Comando</div>
                         <div id="node-details">
                             <p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p>
@@ -301,15 +365,55 @@
     </div>
 
     <script>
-        // ================= SYSTEM CHECK =================
+        let network = null;
+        let physicsFrozen = false;
+
+        // ================= SYSTEM CHECK + GRIGLIA PROGETTI =================
         fetch('/api/system-check').then(r => r.json()).then(data => {
             document.getElementById('gpu-status').innerHTML = data.gpu_available ?
                 '🚀 <strong>GPU attiva rilevata</strong> — pipeline accelerata hardware.' :
                 '💻 <strong>Modalità CPU</strong> — nessuna GPU rilevata, esecuzione standard.';
             document.getElementById('hdr-status').textContent =
                 (data.gpu_available ? 'GPU-LINK' : 'CPU-LINK') + (data.graph_exists ? ' · GRAPH READY' : ' · IDLE');
-            if (data.graph_exists) document.getElementById('resume-section').style.display = 'block';
         }).catch(() => { document.getElementById('hdr-status').textContent = 'OFFLINE'; });
+
+        async function loadProjects() {
+            try {
+                const res = await fetch('/api/runs');
+                const data = await res.json();
+                const grid = document.getElementById('projects-grid');
+                const newCard = document.getElementById('card-new-project');
+                (data.runs || []).forEach(run => {
+                    if (!run.has_graph || run.status !== 'done') return;
+                    const card = document.createElement('div');
+                    card.className = 'project-card';
+                    const dateStr = (run.ts || '').slice(0, 16).replace('T', ' ');
+                    card.innerHTML = `
+                        <div class="p-id">RUN #${run.id}</div>
+                        <div class="p-date">${dateStr} UTC</div>
+                        <span class="p-lang">${run.lang || 'en'}</span>
+                        <div class="p-stats">${(run.nodes || 0).toLocaleString('it-IT')} nodi<br>${(run.edges || 0).toLocaleString('it-IT')} archi</div>
+                        <button class="btn small p-open" onclick="openProject(${run.id})">Apri →</button>`;
+                    grid.insertBefore(card, newCard);
+                });
+            } catch (e) { console.error('loadProjects errore:', e); }
+        }
+        loadProjects();
+
+        function toggleUploadPanel() {
+            document.getElementById('upload-panel').classList.toggle('open');
+        }
+
+        async function openProject(runId) {
+            try {
+                const res = await fetch(`/api/runs/${runId}/activate`, { method: 'POST' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                goToGraph();
+            } catch (e) {
+                console.error('openProject fallita:', e);
+                alert('Impossibile aprire il progetto #' + runId);
+            }
+        }
 
         // ================= UPLOAD + RUN =================
         async function uploadFiles() {
@@ -376,6 +480,34 @@
             }, 1000);
         }
 
+        // ================= FISICA (FIX #1) =================
+        function togglePhysics() {
+            if (!network) return;
+            physicsFrozen = !physicsFrozen;
+            network.setOptions({ physics: { enabled: !physicsFrozen } });
+            const btn = document.getElementById('btn-freeze');
+            if (physicsFrozen) {
+                btn.textContent = '▶ Scongela Fisica';
+                btn.classList.add('frozen');
+            } else {
+                btn.textContent = '❄ Congela Fisica';
+                btn.classList.remove('frozen');
+            }
+        }
+
+        function bindPhysicsControls() {
+            const solverSelect = document.getElementById('physics-solver');
+            solverSelect.onchange = function () {
+                if (!network) return;
+                physicsFrozen = false;
+                const btn = document.getElementById('btn-freeze');
+                btn.textContent = '❄ Congela Fisica';
+                btn.classList.remove('frozen');
+                network.setOptions({ physics: { enabled: true, solver: solverSelect.value } });
+                network.stabilize(200);
+            };
+        }
+
         // ================= GRAPH RENDERING =================
         async function renderGraph() {
             try {
@@ -385,8 +517,7 @@
                 const data = await res.json();
                 console.log('[Arachne] payload:', data.nodes.length, 'nodi,', (data.edges || data.links || []).length, 'archi');
 
-                // FILTRO DI PROTEZIONE CANVAS: vis-network con fisica attiva freeza
-                // oltre poche migliaia di nodi -> top MAX_NODES connessi per betweenness.
+                // FILTRO DI PROTEZIONE CANVAS: top MAX_NODES connessi per betweenness.
                 const MAX_NODES = 400;
                 const totalNodes = data.nodes.length;
                 let filtered = data.nodes.filter(n => (n.metrics?.degree ?? 0) > 0);
@@ -416,6 +547,7 @@
                 })));
 
                 const container = document.getElementById('mynetwork');
+                const solver = document.getElementById('physics-solver').value;
                 const options = {
                     nodes: { shape: 'dot', font: { color: '#e9e4f5', face: 'Inter', size: 13, strokeWidth: 0 },
                              borderWidth: 2, shadow: { enabled: true, color: 'rgba(168, 85, 247, 0.4)', size: 12 } },
@@ -428,11 +560,27 @@
                         4: { color: { background: '#fbbf24', border: '#fde68a' } },
                         5: { color: { background: '#818cf8', border: '#c7d2fe' } }
                     },
-                    physics: { barnesHut: { gravitationalConstant: -3000, centralGravity: 0.3, springLength: 95 } },
+                    physics: {
+                        enabled: true,
+                        solver: solver,
+                        barnesHut: { gravitationalConstant: -3000, centralGravity: 0.3, springLength: 95 },
+                        stabilization: { iterations: 250, updateInterval: 25 }
+                    },
                     interaction: { hover: true, tooltipDelay: 150 }
                 };
-                const network = new vis.Network(container, { nodes: visNodes, edges: visEdges }, options);
-                console.log('[Arachne] vis.Network creato:', filtered.length, 'nodi,', rawEdges.length, 'archi');
+                network = new vis.Network(container, { nodes: visNodes, edges: visEdges }, options);
+                physicsFrozen = false;
+                bindPhysicsControls();
+                console.log('[Arachne] vis.Network creato:', filtered.length, 'nodi,', rawEdges.length, 'archi, solver:', solver);
+
+                // Auto-congela al termine della stabilizzazione iniziale (layout "fotografato")
+                let autoFrozen = false;
+                network.on('stabilizationIterationsDone', function () {
+                    if (autoFrozen || physicsFrozen) return;
+                    autoFrozen = true;
+                    togglePhysics();
+                    console.log('[Arachne] stabilizzazione completata: fisica congelata.');
+                });
 
                 network.on('click', function (params) {
                     const box = document.getElementById('node-details');
@@ -463,6 +611,8 @@
             document.getElementById('step-2').classList.remove('active');
             document.getElementById('main-container').classList.add('container-wide');
             document.getElementById('step-3').classList.add('active');
+            // FIX #3: export visibili solo nella dashboard grafo
+            document.getElementById('header-actions').classList.add('visible');
             renderGraph();
         }
     </script>
