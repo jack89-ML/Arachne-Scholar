@@ -34,6 +34,7 @@
                 <p>Carica i tuoi paper (formato PDF) per iniziare una nuova estrazione topologica.</p>
                 <input type="file" id="file-input" multiple accept=".pdf" style="margin-bottom: 15px;">
                 <br>
+                <select id="lang-select" class="btn" style="margin-bottom: 15px; margin-left: 10px;"><option value="en">Inglese</option><option value="it">Italiano</option><option value="es">Spagnolo</option></select>
                 <button class="btn" onclick="uploadFiles()">Carica e Inizia</button>
             </div>
         </div>
@@ -74,6 +75,7 @@
             for(let i=0; i<fileInput.files.length; i++) {
                 formData.append('files', fileInput.files[i]);
             }
+            formData.append('lang', document.getElementById('lang-select').value);
 
             document.getElementById('step-1').classList.remove('active');
             document.getElementById('step-2').classList.add('active');

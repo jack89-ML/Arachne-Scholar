@@ -12,6 +12,15 @@ from collections import Counter
 
 import spacy
 
+# --- LINGUA & MODELLO (v1.2 multilingua EN/IT/ES) ------------------------------
+LANG = sys.argv[3].lower() if len(sys.argv) > 3 else "en"
+LANG_MODELS = {
+    "en": "en_core_web_lg",
+    "it": "it_core_news_lg",
+    "es": "es_core_news_lg",
+}
+MODEL_NAME = LANG_MODELS.get(LANG, LANG_MODELS["en"])
+
 # --- GPU SETUP ----------------------------------------------------------------
 try:
     spacy.require_gpu()
@@ -20,18 +29,21 @@ except Exception as e:
     GPU_ACTIVE = False
     print(f"[warn] GPU non disponibile ({e}), fallback CPU", file=sys.stderr)
 
-MODEL_NAME = "en_core_web_trf"
+# --- AUTO-DOWNLOAD & LOAD ------------------------------------------------------
 try:
     nlp = spacy.load(MODEL_NAME)
 except OSError:
-    MODEL_NAME = "en_core_web_lg"
+    print(f"[setup] modello {MODEL_NAME} mancante, download automatico...", file=sys.stderr)
+    from spacy.cli import download as spacy_download
+    spacy_download(MODEL_NAME)
     nlp = spacy.load(MODEL_NAME)
 
 nlp.max_length = 6_000_000
-print(f"[setup] model={MODEL_NAME} gpu={GPU_ACTIVE}", file=sys.stderr)
+print(f"[setup] lang={LANG} model={MODEL_NAME} gpu={GPU_ACTIVE}", file=sys.stderr)
 
 # --- STOPWORDS & FILTRI --------------------------------------------------------
-GENERIC_HEADS = {
+GENERIC_HEADS_DICT = {
+    "en": {
     "theory", "model", "concept", "method", "approach", "analysis", "study",
     "result", "results", "data", "paper", "chapter", "book", "table",
     "figure", "section", "process", "system", "work", "research", "field",
@@ -47,7 +59,45 @@ GENERIC_HEADS = {
     "outcome", "outcomes", "finding", "findings", "evidence",
     "literature", "review", "introduction", "conclusion", "discussion",
     "summary", "overview", "background", "framework", "perspective",
+},
+    "it": {
+        "teoria", "modello", "concetto", "metodo", "approccio", "analisi",
+        "studio", "risultato", "risultati", "dati", "dato", "articolo",
+        "capitolo", "libro", "tabella", "figura", "sezione", "processo",
+        "sistema", "lavoro", "ricerca", "campo", "caso", "esempio",
+        "domanda", "problema", "questione", "fatto", "ragione", "modo",
+        "parte", "tipo", "forma", "livello", "punto", "tempo", "anno",
+        "anni", "numero", "persone", "gruppo", "gruppi", "cosa", "cose",
+        "uso", "ruolo", "effetto", "effetti", "impatto", "differenza",
+        "differenze", "cambiamento", "cambiamenti", "relazione",
+        "relazioni", "variabile", "variabili", "fattore", "fattori",
+        "aspetto", "aspetti", "elemento", "elementi", "caratteristica",
+        "caratteristiche", "contesto", "contesti", "dimensione",
+        "dimensioni", "meccanismo", "meccanismi", "struttura", "strutture",
+        "esito", "esiti", "evidenza", "letteratura", "rassegna",
+        "introduzione", "conclusione", "discussione", "riassunto",
+        "panoramica", "quadro", "prospettiva",
+    },
+    "es": {
+        "teoría", "modelo", "concepto", "método", "enfoque", "análisis",
+        "estudio", "resultado", "resultados", "datos", "dato", "artículo",
+        "capítulo", "libro", "tabla", "figura", "sección", "proceso",
+        "sistema", "trabajo", "investigación", "campo", "caso", "ejemplo",
+        "pregunta", "problema", "cuestión", "hecho", "razón", "manera",
+        "parte", "tipo", "forma", "nivel", "punto", "tiempo", "año",
+        "años", "número", "personas", "grupo", "grupos", "cosa", "cosas",
+        "uso", "rol", "papel", "efecto", "efectos", "impacto",
+        "diferencia", "diferencias", "cambio", "cambios", "relación",
+        "relaciones", "variable", "variables", "factor", "factores",
+        "aspecto", "aspectos", "elemento", "elementos", "característica",
+        "características", "contexto", "contextos", "dimensión",
+        "dimensiones", "mecanismo", "mecanismos", "estructura",
+        "estructuras", "patrón", "patrones", "evidencia", "literatura",
+        "revisión", "introducción", "conclusión", "discusión", "resumen",
+        "panorama", "marco", "perspectiva",
+    },
 }
+GENERIC_HEADS = GENERIC_HEADS_DICT.get(LANG, GENERIC_HEADS_DICT["en"])
 
 DETERMINERS = {"the", "a", "an", "this", "these", "that", "those", "some",
                "any", "each", "other", "another", "such", "all", "both",
@@ -60,7 +110,8 @@ JUNK_TOKENS = {"br", "p", "pp", "ed", "eds", "vol", "no", "cf", "ibid",
                "etc", "ie", "eg", "al", "et", "ff", "fn", "n", "nd"}
 
 # Pronomi/question-words che il parser cattura come chunk -> nodi junk (fix v2.1)
-JUNK_ENTITIES = {
+JUNK_ENTITIES_DICT = {
+    "en": {
     "which", "that", "who", "whom", "whose", "what", "whatever", "whichever",
     "they", "them", "their", "theirs", "he", "him", "his", "she", "her",
     "hers", "it", "its", "itself", "we", "us", "our", "ours", "i", "me",
@@ -71,17 +122,74 @@ JUNK_ENTITIES = {
     "either", "neither", "none", "few", "many", "much", "most", "more",
     "several", "others", "another", "such", "same", "own", "else",
     "whenever", "wherever", "however",
+},
+    "it": {
+        "che", "cui", "chi", "quale", "quali", "cosa", "ciò", "quello",
+        "quella", "questo", "questa", "questi", "queste", "loro", "essi",
+        "esse", "egli", "ella", "esso", "essa", "noi", "voi", "io", "me",
+        "mio", "mia", "miei", "mie", "tuo", "tua", "suoi", "sue", "suo",
+        "sua", "nostro", "nostra", "vostro", "vostra", "qualcuno",
+        "qualcosa", "tutto", "niente", "nulla", "chiunque", "ognuno",
+        "tutti", "nessuno", "alcuno", "ciascuno", "entrambi", "entrambe",
+        "ogni", "alcuni", "alcune", "molti", "molte", "molto", "molta",
+        "più", "meno", "parecchi", "parecchie", "diversi", "diverse",
+        "altri", "altre", "altro", "altra", "tale", "tali", "stesso",
+        "stessa", "medesimo", "qui", "qua", "lì", "là", "dove", "quando",
+        "perché", "come", "ovunque", "dovunque", "comunque", "qualunque",
+        "qualsiasi", "ne", "ci", "vi", "si",
+    },
+    "es": {
+        "que", "cual", "cuál", "cuales", "quién", "quienes", "qué",
+        "este", "esta", "esto", "estos", "estas", "ese", "esa", "eso",
+        "esos", "esas", "aquel", "aquella", "aquello", "ellos", "ellas",
+        "él", "ella", "nosotros", "nosotras", "vosotros", "yo", "mí",
+        "me", "mío", "mía", "tuyo", "tuya", "suyo", "suya", "su", "sus",
+        "nuestro", "nuestra", "vuestro", "alguien", "algo", "todo",
+        "nada", "nadie", "cualquiera", "quienquiera", "todos", "todas",
+        "cada", "ambos", "ambas", "algunos", "algunas", "muchos",
+        "muchas", "mucho", "mucha", "más", "menos", "varios", "varias",
+        "otros", "otras", "otro", "otra", "tal", "tales", "mismo",
+        "misma", "aquí", "ahí", "allí", "donde", "dónde", "cuando",
+        "cuándo", "cómo", "como", "dondequiera",
+    },
 }
+JUNK_ENTITIES = JUNK_ENTITIES_DICT.get(LANG, JUNK_ENTITIES_DICT["en"])
 
-WEAK_VERBS = {"be", "have", "do", "say", "get", "make", "take", "see",
+WEAK_VERBS_DICT = {
+    "en": {"be", "have", "do", "say", "get", "make", "take", "see",
               "know", "think", "go", "come", "give", "tell", "call", "seem",
               "appear", "become", "remain", "stay", "begin", "start", "end",
               "put", "set", "let", "keep", "help", "try", "need", "want",
               "like", "feel", "look", "sound", "mean", "believe", "note",
               "mention", "refer", "cite", "quote", "state", "report",
-              "according", "following", "based", "using", "used"}
+              "according", "following", "based", "using", "used"},
+    "it": {
+        "essere", "avere", "fare", "dire", "ottenere", "prendere",
+        "vedere", "sapere", "conoscere", "pensare", "andare", "venire",
+        "dare", "raccontare", "chiamare", "sembrare", "apparire",
+        "diventare", "rimanere", "restare", "iniziare", "cominciare",
+        "finire", "mettere", "porre", "lasciare", "tenere", "aiutare",
+        "provare", "tentare", "bisognare", "volere", "dovere", "potere",
+        "piacere", "sentire", "guardare", "suonare", "significare",
+        "credere", "notare", "menzionare", "riferire", "citare",
+        "dichiarare", "riportare", "affermare", "seguire", "basare",
+        "usare",
+    },
+    "es": {
+        "ser", "estar", "haber", "hacer", "decir", "obtener", "conseguir",
+        "tomar", "ver", "saber", "conocer", "pensar", "ir", "venir",
+        "dar", "contar", "llamar", "parecer", "aparecer", "volverse",
+        "quedarse", "permanecer", "empezar", "comenzar", "terminar",
+        "poner", "dejar", "mantener", "ayudar", "intentar", "necesitar",
+        "querer", "deber", "poder", "gustar", "sentir", "mirar", "sonar",
+        "significar", "creer", "notar", "mencionar", "referir", "citar",
+        "declarar", "informar", "afirmar", "seguir", "basar", "usar",
+    },
+}
+WEAK_VERBS = WEAK_VERBS_DICT.get(LANG, WEAK_VERBS_DICT["en"])
 
-RELATION_VERBS = {
+RELATION_VERBS_DICT = {
+    "en": {
     "analyze", "analyse", "define", "explain", "describe", "examine", "study",
     "investigate", "explore", "develop", "propose", "introduce", "apply",
     "employ", "test", "measure", "compare", "contrast", "evaluate",
@@ -100,7 +208,57 @@ RELATION_VERBS = {
     "transform", "change", "alter", "modify", "structure", "organize",
     "integrate", "combine", "merge", "unify", "separate", "distinguish",
     "differentiate", "classify", "categorize", "group", "cluster",
+},
+    "it": {
+        "analizzare", "definire", "spiegare", "descrivere", "esaminare",
+        "studiare", "investigare", "esplorare", "sviluppare", "proporre",
+        "introdurre", "applicare", "impiegare", "testare", "verificare",
+        "misurare", "confrontare", "valutare", "dimostrare", "mostrare",
+        "rivelare", "trovare", "identificare", "sostenere", "argomentare",
+        "suggerire", "supportare", "sfidare", "criticare", "estendere",
+        "costruire", "prevedere", "influenzare", "incidere",
+        "condizionare", "determinare", "causare", "produrre", "generare",
+        "creare", "formare", "costituire", "comprendere", "includere",
+        "contenere", "coinvolgere", "richiedere", "correlare",
+        "collegare", "associare", "dipendere", "derivare", "emergere",
+        "sorgere", "condurre", "portare", "contribuire", "mediare",
+        "moderare", "sottendere", "inquadrare", "concettualizzare",
+        "teorizzare", "formalizzare", "operazionalizzare", "validare",
+        "replicare", "confermare", "confutare", "respingere", "assumere",
+        "ipotizzare", "postulare", "affrontare", "focalizzare",
+        "concentrare", "centrare", "trattare", "coprire", "discutere",
+        "considerare", "riguardare", "interpretare", "capire",
+        "trasformare", "cambiare", "alterare", "modificare",
+        "strutturare", "organizzare", "integrare", "combinare", "unire",
+        "unificare", "separare", "distinguere", "differenziare",
+        "classificare", "categorizzare", "raggruppare",
+    },
+    "es": {
+        "analizar", "definir", "explicar", "describir", "examinar",
+        "estudiar", "investigar", "explorar", "desarrollar", "proponer",
+        "introducir", "aplicar", "emplear", "probar", "medir",
+        "comparar", "contrastar", "evaluar", "demostrar", "mostrar",
+        "revelar", "encontrar", "identificar", "argumentar", "afirmar",
+        "sugerir", "apoyar", "sostener", "desafiar", "criticar",
+        "extender", "construir", "predecir", "influir", "influenciar",
+        "afectar", "condicionar", "determinar", "causar", "producir",
+        "generar", "crear", "formar", "constituir", "comprender",
+        "incluir", "contener", "involucrar", "requerir", "relacionar",
+        "conectar", "vincular", "asociar", "correlacionar", "depender",
+        "derivar", "emerger", "surgir", "conducir", "llevar",
+        "contribuir", "mediar", "moderar", "subyacer", "enmarcar",
+        "conceptualizar", "teorizar", "formalizar", "operacionalizar",
+        "validar", "replicar", "confirmar", "refutar", "rechazar",
+        "asumir", "hipotetizar", "postular", "abordar", "enfocar",
+        "concentrar", "centrar", "tratar", "cubrir", "discutir",
+        "considerar", "interpretar", "entender", "transformar",
+        "cambiar", "alterar", "modificar", "estructurar", "organizar",
+        "integrar", "combinar", "fusionar", "unificar", "separar",
+        "distinguir", "diferenciar", "clasificar", "categorizar",
+        "agrupar",
+    },
 }
+RELATION_VERBS = RELATION_VERBS_DICT.get(LANG, RELATION_VERBS_DICT["en"])
 
 NER_TYPE_MAP = {
     "PERSON": "author",
@@ -291,11 +449,11 @@ def extract_svo_edges(doc, entities):
 
             for child in tok.children:
                 dep = child.dep_
-                if dep in ("nsubj", "nsubjpass", "agent", "expl"):
+                if dep in ("nsubj", "nsubjpass", "nsubj:pass", "csubj", "csubjpass", "agent", "expl"):
                     nid = nid_for_span(child, entities)
                     if nid:
                         subj_nid = nid
-                elif dep in ("dobj", "attr", "acomp", "oprd", "dative"):
+                elif dep in ("dobj", "obj", "iobj", "obl", "attr", "acomp", "oprd", "dative"):
                     nid = nid_for_span(child, entities)
                     if nid:
                         obj_nids.append(nid)
@@ -308,7 +466,7 @@ def extract_svo_edges(doc, entities):
                 elif dep in ("xcomp", "ccomp", "advcl"):
                     # verbo subordinato: collega soggetto all'oggetto della subordinata
                     for gc in child.children:
-                        if gc.dep_ in ("dobj", "attr"):
+                        if gc.dep_ in ("dobj", "obj", "attr"):
                             nid = nid_for_span(gc, entities)
                             if nid:
                                 obj_nids.append(nid)
@@ -429,8 +587,8 @@ def main():
         "nodes": nodes,
         "links": links,
         "edges": links,
-        "meta": {"model": MODEL_NAME, "gpu": GPU_ACTIVE,
-                 "engine": "spacy trf: NER + noun chunks + dependency parsing"},
+        "meta": {"model": MODEL_NAME, "gpu": GPU_ACTIVE, "lang": LANG,
+                 "engine": "spacy lg: NER + noun chunks + dependency parsing (multilingua)"},
     }
 
     out_path = os.path.join(out_dir, "graph.json")

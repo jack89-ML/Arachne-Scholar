@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 import os
@@ -13,6 +13,7 @@ PDF_DIR = os.path.join(DATA_DIR, "raw_pdfs")
 MD_DIR = os.path.join(DATA_DIR, "converted_md")
 OUT_DIR = os.path.join(DATA_DIR, "graph_out")
 LOG_FILE = os.path.join(BASE_DIR, "pipeline.log")
+LANG_FILE = os.path.join(BASE_DIR, "pipeline.lang")
 
 for d in [PDF_DIR, MD_DIR, OUT_DIR]:
     os.makedirs(d, exist_ok=True)
@@ -36,7 +37,9 @@ def system_check():
     return {"gpu_available": gpu, "graph_exists": graph_exists}
 
 @app.post("/api/upload")
-async def upload_files(files: list[UploadFile] = File(...)):
+async def upload_files(files: list[UploadFile] = File(...), lang: str = Form("en")):
+    with open(LANG_FILE, "w") as lf:
+        lf.write(lang)
     for file in files:
         if file.filename.endswith(".pdf"):
             file_location = f"{PDF_DIR}/{file.filename}"
@@ -45,12 +48,15 @@ async def upload_files(files: list[UploadFile] = File(...)):
     return {"info": f"Caricati {len(files)} file."}
 
 def run_pipeline():
+    lang_code = "en"
+    if os.path.exists(LANG_FILE):
+        lang_code = open(LANG_FILE).read().strip() or "en"
     with open(LOG_FILE, "w") as log:
-        log.write("Avvio Pipeline Arachne-Scholar...\n")
+        log.write(f"Avvio Pipeline Arachne-Scholar (lang={lang_code})...\n")
         
         scripts = [
             ("Ingestione PDF", f"python {BASE_DIR}/src/ingest_pdf.py {PDF_DIR} {MD_DIR}"),
-            ("Estrazione SVO", f"python {BASE_DIR}/src/extract_svo.py {MD_DIR} {OUT_DIR}"),
+            ("Estrazione SVO", f"python {BASE_DIR}/src/extract_svo.py {MD_DIR} {OUT_DIR} {lang_code}"),
             ("Calcolo Metriche SNA", f"python {BASE_DIR}/src/sna_metrics.py {OUT_DIR}/graph.json {OUT_DIR}/graph_with_metrics.json")
         ]
         
