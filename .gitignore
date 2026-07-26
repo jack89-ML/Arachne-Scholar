@@ -1,0 +1,7 @@
+data/
+graph_out/
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
