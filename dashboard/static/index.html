@@ -2,66 +2,315 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arachne Scholar</title>
+
+    <!-- Google Fonts: Inter (UI) + JetBrains Mono (console log) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <!-- vis-network UMD -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; background: #1e1e1e; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        h1 { color: #bb86fc; text-align: center; }
+        :root {
+            --violet: #a855f7;
+            --cyan: #22d3ee;
+            --bg-deep: #0a0612;
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(168, 85, 247, 0.2);
+            --glass-shadow: rgba(168, 85, 247, 0.1);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0612;
+            background-image:
+                radial-gradient(ellipse 80% 60% at 20% 10%, rgba(168, 85, 247, 0.18), transparent 60%),
+                radial-gradient(ellipse 70% 50% at 85% 85%, rgba(37, 99, 235, 0.16), transparent 60%),
+                radial-gradient(ellipse 50% 40% at 60% 40%, rgba(34, 211, 238, 0.06), transparent 70%);
+            background-attachment: fixed;
+            color: #e9e4f5;
+            margin: 0;
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .container.container-wide { max-width: 1400px; }
+
+        h1 {
+            text-align: center;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(90deg, var(--violet), var(--cyan));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 24px;
+        }
+
         .wizard-step { display: none; }
         .wizard-step.active { display: block; }
-        .btn { background-color: #bb86fc; color: #000; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; }
-        .btn:hover { background-color: #9965f4; }
-        .log-window { background: #000; color: #0f0; font-family: monospace; padding: 15px; height: 300px; overflow-y: scroll; border-radius: 5px; margin-top: 20px; white-space: pre-wrap;}
-        .card { border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 5px; }
+
+        /* Card glassmorphism */
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(168, 85, 247, 0.2);
+            box-shadow: 0 0 50px rgba(168, 85, 247, 0.1);
+            border-radius: 24px;
+            padding: 28px;
+            margin-bottom: 20px;
+        }
+
+        h3 {
+            color: var(--violet);
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            margin-top: 0;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, var(--violet), #7c3aed);
+            color: #fff;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            margin-top: 10px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.35);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.6);
+        }
+
+        .btn-cyan {
+            background: linear-gradient(135deg, var(--cyan), #0891b2);
+            box-shadow: 0 0 20px rgba(34, 211, 238, 0.3);
+        }
+
+        .btn-cyan:hover { box-shadow: 0 0 30px rgba(34, 211, 238, 0.55); }
+
+        select#lang-select {
+            background: rgba(255, 255, 255, 0.05);
+            color: #e9e4f5;
+            border: 1px solid rgba(168, 85, 247, 0.35);
+            padding: 10px 16px;
+            border-radius: 12px;
+            font-family: 'Inter', sans-serif;
+            margin: 0 10px 15px 0;
+            cursor: pointer;
+        }
+
+        select#lang-select option { background: #150a24; color: #e9e4f5; }
+
+        input[type="file"] {
+            color: #b9a8d9;
+            font-family: 'Inter', sans-serif;
+            margin-bottom: 15px;
+        }
+
+        input[type="file"]::file-selector-button {
+            background: rgba(168, 85, 247, 0.15);
+            color: var(--violet);
+            border: 1px solid rgba(168, 85, 247, 0.4);
+            padding: 8px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            margin-right: 12px;
+        }
+
+        .accent-cyan { color: var(--cyan); }
+
+        /* Console log in JetBrains Mono */
+        .log-window {
+            background: rgba(5, 2, 12, 0.8);
+            border: 1px solid rgba(34, 211, 238, 0.25);
+            color: #22d3ee;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            padding: 18px;
+            height: 320px;
+            overflow-y: scroll;
+            border-radius: 16px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            box-shadow: inset 0 0 30px rgba(34, 211, 238, 0.05);
+        }
+
+        .log-window::-webkit-scrollbar { width: 8px; }
+        .log-window::-webkit-scrollbar-track { background: transparent; }
+        .log-window::-webkit-scrollbar-thumb { background: rgba(34, 211, 238, 0.3); border-radius: 4px; }
+
+        /* STEP 3: layout a due colonne */
+        .graph-layout {
+            display: flex;
+            gap: 20px;
+            align-items: stretch;
+        }
+
+        .graph-panel {
+            flex: 1;
+            min-width: 0;
+            padding: 16px;
+        }
+
+        /* FIX BUG CANVAS VUOTO: altezza FISSA, mai vh che collassa a 0px */
+        #mynetwork {
+            height: 650px;
+            width: 100%;
+            position: relative;
+            display: block;
+            background: rgba(5, 2, 12, 0.6);
+            border: 1px solid rgba(168, 85, 247, 0.25);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 300px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar .card {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.25em;
+            color: var(--cyan);
+            border-bottom: 1px solid rgba(34, 211, 238, 0.25);
+            padding-bottom: 10px;
+            margin-bottom: 16px;
+        }
+
+        .metric-row {
+            margin-bottom: 14px;
+        }
+
+        .metric-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            color: #8b7bb8;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 0 12px rgba(168, 85, 247, 0.5);
+            word-break: break-word;
+        }
+
+        .metric-value.violet { color: var(--violet); }
+        .metric-value.cyan { color: var(--cyan); text-shadow: 0 0 12px rgba(34, 211, 238, 0.5); }
+
+        .sidebar-placeholder {
+            color: #6b5b93;
+            font-size: 13px;
+            font-style: italic;
+            text-align: center;
+            margin-top: 40px;
+        }
+
+        @media (max-width: 900px) {
+            .graph-layout { flex-direction: column; }
+            .sidebar { width: 100%; }
+        }
     </style>
-<script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>Arachne Scholar 🕷️</h1>
-        
+    <div class="container" id="main-container">
+        <h1>Arachne Scholar</h1>
+
         <!-- STEP 1: Welcome & System Check -->
         <div id="step-1" class="wizard-step active">
             <div class="card">
                 <h3>Stato del Sistema</h3>
                 <p id="gpu-status">Verifica hardware in corso...</p>
                 <div id="resume-section" style="display: none;">
-                    <p style="color: #03dac6;">Trovato un grafo esistente!</p>
-                    <button class="btn" onclick="goToGraph()">Vai alla Dashboard Analisi</button>
-                    <hr style="border-color: #333;">
+                    <p class="accent-cyan">Trovato un grafo esistente!</p>
+                    <button class="btn btn-cyan" onclick="goToGraph()">Vai alla Dashboard Analisi</button>
+                    <hr style="border-color: rgba(168,85,247,0.2); margin: 20px 0;">
                 </div>
                 <h3>Nuovo Progetto</h3>
                 <p>Carica i tuoi paper (formato PDF) per iniziare una nuova estrazione topologica.</p>
-                <input type="file" id="file-input" multiple accept=".pdf" style="margin-bottom: 15px;">
+                <input type="file" id="file-input" multiple accept=".pdf">
                 <br>
-                <select id="lang-select" class="btn" style="margin-bottom: 15px; margin-left: 10px;"><option value="en">Inglese</option><option value="it">Italiano</option><option value="es">Spagnolo</option></select>
+                <select id="lang-select">
+                    <option value="en">Inglese</option>
+                    <option value="it">Italiano</option>
+                    <option value="es">Spagnolo</option>
+                </select>
                 <button class="btn" onclick="uploadFiles()">Carica e Inizia</button>
             </div>
         </div>
 
         <!-- STEP 2: Processing & Live Logs -->
         <div id="step-2" class="wizard-step">
-            <h3>Magia in corso... ✨</h3>
-            <p>Estrazione SVO e calcolo buchi strutturali in esecuzione. Non chiudere questa finestra.</p>
-            <div class="log-window" id="log-console">Inizializzazione...</div>
-            <button class="btn" id="btn-results" style="display: none; width: 100%;" onclick="goToGraph()">Visualizza i Risultati</button>
+            <div class="card">
+                <h3>Magia in corso...</h3>
+                <p>Estrazione SVO e calcolo buchi strutturali in esecuzione. Non chiudere questa finestra.</p>
+                <div class="log-window" id="log-console">Inizializzazione...</div>
+                <button class="btn btn-cyan" id="btn-results" style="display: none; width: 100%;" onclick="goToGraph()">Visualizza i Risultati</button>
+            </div>
         </div>
 
-        <!-- STEP 3: Graph Placeholder -->
-        <div id="step-3" class="wizard-step" style="max-width: 100%; width: 95vw;">
-            <h3>Dashboard Topologica</h3>
-            <div id="mynetwork" style="width: 100%; height: 70vh; border: 1px solid #444; background: #222; border-radius: 8px; margin-bottom: 15px;"></div>
-            <button class="btn" onclick="location.reload()">Torna alla Home</button>
+        <!-- STEP 3: Graph Dashboard a due colonne -->
+        <div id="step-3" class="wizard-step">
+            <div class="graph-layout">
+                <div class="card graph-panel">
+                    <h3>Dashboard Topologica</h3>
+                    <div id="mynetwork"></div>
+                </div>
+                <div class="sidebar">
+                    <div class="card">
+                        <div class="sidebar-title">// Plancia di Comando</div>
+                        <div id="node-details">
+                            <p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p>
+                        </div>
+                    </div>
+                    <button class="btn" style="width: 100%;" onclick="location.reload()">Torna alla Home</button>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
         // System Check al caricamento
         fetch('/api/system-check').then(r => r.json()).then(data => {
-            document.getElementById('gpu-status').innerHTML = data.gpu_available ? 
-                '🚀 <strong>Hardware Accelerato Rilevato (GPU attiva)</strong>. Prestazioni massime.' : 
+            document.getElementById('gpu-status').innerHTML = data.gpu_available ?
+                '🚀 <strong>Hardware Accelerato Rilevato (GPU attiva)</strong>. Prestazioni massime.' :
                 '💻 <strong>Nessuna GPU rilevata</strong>. Fallback su CPU (modalità risparmio energetico).';
-            
+
             if(data.graph_exists) {
                 document.getElementById('resume-section').style.display = 'block';
             }
@@ -70,7 +319,7 @@
         async function uploadFiles() {
             const fileInput = document.getElementById('file-input');
             if(fileInput.files.length === 0) { alert('Seleziona almeno un file PDF!'); return; }
-            
+
             const formData = new FormData();
             for(let i=0; i<fileInput.files.length; i++) {
                 formData.append('files', fileInput.files[i]);
@@ -82,7 +331,7 @@
 
             await fetch('/api/upload', { method: 'POST', body: formData });
             await fetch('/api/run', { method: 'POST' });
-            
+
             pollLogs();
         }
 
@@ -101,41 +350,106 @@
             }, 1000);
         }
 
-
         // Funzione per renderizzare il grafo
         async function renderGraph() {
-            const res = await fetch('/api/graph');
-            const data = await res.json();
-            
-            const visNodes = new vis.DataSet(data.nodes.map(n => ({
-                id: n.id,
-                label: n.label,
-                title: `Type: ${n.type}<br>Betweenness: ${n.metrics?.betweenness || 0}<br>Constraint: ${n.metrics?.constraint || 1}`,
-                group: n.metrics?.community || 0,
-                value: (n.metrics?.betweenness || 0.01) * 100 + 10 // Size basata su betweenness
-            })));
+            try {
+                const res = await fetch('/api/graph');
+                if (!res.ok) throw new Error('Errore HTTP ' + res.status + ' nel caricamento del grafo');
+                const data = await res.json();
 
-            const visEdges = new vis.DataSet(data.edges.map(e => ({
-                from: e.source,
-                to: e.target,
-                label: e.relation,
-                arrows: 'to',
-                color: { inherit: 'both' }
-            })));
+                const visNodes = new vis.DataSet(data.nodes.map(n => ({
+                    id: n.id,
+                    label: n.label,
+                    title: `Tipo: ${n.type}<br>Betweenness: ${n.metrics?.betweenness || 0}<br>Constraint: ${n.metrics?.constraint ?? 1}`,
+                    group: n.metrics?.community ?? 0,
+                    value: (n.metrics?.betweenness || 0.01) * 100 + 10, // dimensione proporzionale alla betweenness
+                    rawMetrics: n.metrics || {},
+                    rawType: n.type || 'N/A'
+                })));
 
-            const container = document.getElementById('mynetwork');
-            const networkData = { nodes: visNodes, edges: visEdges };
-            const options = {
-                nodes: { shape: 'dot', font: { color: '#fff' } },
-                edges: { font: { color: '#aaa', size: 10, align: 'middle' }, smooth: { type: 'continuous' } },
-                physics: { barnesHut: { gravitationalConstant: -3000, centralGravity: 0.3, springLength: 95 } }
-            };
-            new vis.Network(container, networkData, options);
+                const visEdges = new vis.DataSet((data.edges || data.links || []).map(e => ({
+                    from: e.source,
+                    to: e.target,
+                    label: e.relation,
+                    arrows: 'to',
+                    color: { color: 'rgba(168, 85, 247, 0.4)', highlight: '#22d3ee' },
+                    font: { color: '#8b7bb8', size: 10, align: 'middle', strokeWidth: 0 }
+                })));
+
+                const container = document.getElementById('mynetwork');
+                const networkData = { nodes: visNodes, edges: visEdges };
+                const options = {
+                    nodes: {
+                        shape: 'dot',
+                        font: { color: '#e9e4f5', face: 'Inter', size: 13, strokeWidth: 0 },
+                        borderWidth: 2,
+                        shadow: { enabled: true, color: 'rgba(168, 85, 247, 0.4)', size: 12 }
+                    },
+                    edges: { smooth: { type: 'continuous' } },
+                    groups: {
+                        0: { color: { background: '#a855f7', border: '#d8b4fe' } },
+                        1: { color: { background: '#22d3ee', border: '#a5f3fc' } },
+                        2: { color: { background: '#f472b6', border: '#fbcfe8' } },
+                        3: { color: { background: '#34d399', border: '#a7f3d0' } },
+                        4: { color: { background: '#fbbf24', border: '#fde68a' } },
+                        5: { color: { background: '#818cf8', border: '#c7d2fe' } }
+                    },
+                    physics: {
+                        barnesHut: { gravitationalConstant: -3000, centralGravity: 0.3, springLength: 95 }
+                    },
+                    interaction: { hover: true, tooltipDelay: 150 }
+                };
+
+                const network = new vis.Network(container, networkData, options);
+
+                // Plancia di comando: al click su un nodo mostra le metriche nella sidebar
+                network.on('click', function(params) {
+                    const detailsBox = document.getElementById('node-details');
+                    if (params.nodes.length > 0) {
+                        const node = visNodes.get(params.nodes[0]);
+                        const m = node.rawMetrics || {};
+                        detailsBox.innerHTML = `
+                            <div class="metric-row">
+                                <div class="metric-label">Nome</div>
+                                <div class="metric-value violet">${node.label || node.id}</div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">Tipo</div>
+                                <div class="metric-value">${node.rawType}</div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">Betweenness</div>
+                                <div class="metric-value cyan">${(m.betweenness ?? 0).toFixed(4)}</div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">Constraint</div>
+                                <div class="metric-value cyan">${(m.constraint ?? 1).toFixed(4)}</div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">Community</div>
+                                <div class="metric-value">${m.community ?? 'N/A'}</div>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-label">Degree</div>
+                                <div class="metric-value">${m.degree ?? 0}</div>
+                            </div>`;
+                    } else {
+                        detailsBox.innerHTML = '<p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p>';
+                    }
+                });
+
+                network.fit();
+            } catch (err) {
+                console.error('renderGraph fallita:', err);
+                document.getElementById('mynetwork').innerHTML =
+                    '<p style="color:#f472b6; padding:20px; font-family:JetBrains Mono,monospace;">Errore nel caricamento del grafo. Controlla la console.</p>';
+            }
         }
 
         function goToGraph() {
             document.getElementById('step-1').classList.remove('active');
             document.getElementById('step-2').classList.remove('active');
+            document.getElementById('main-container').classList.add('container-wide');
             document.getElementById('step-3').classList.add('active');
             renderGraph();
         }
