@@ -1,0 +1,29 @@
+services:
+  arachne:
+    build:
+      context: .
+      # Per build GPU (NVIDIA Container Toolkit richiesto):
+      #   docker compose build --build-arg INSTALL_GPU=true
+      args:
+        INSTALL_GPU: ${INSTALL_GPU:-false}
+    image: arachne-scholar:latest
+    container_name: arachne-scholar
+    ports:
+      - "8000:8000"
+    volumes:
+      - arachne_data:/app/data
+    environment:
+      # Trasparenza CPU/GPU: con toolkit NVIDIA attivo impostare
+      # NVIDIA_VISIBLE_DEVICES=all e decommentare il blocco deploy sotto.
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-none}
+    restart: unless-stopped
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  arachne_data:
