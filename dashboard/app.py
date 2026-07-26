@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 import os
+import sys
 import json
 import sqlite3
 import subprocess
@@ -100,15 +101,41 @@ def read_root():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
-@app.get("/api/system-check")
-def system_check():
+def detect_gpu():
+    """Rilevamento GPU robusto a cascata: torch -> cupy -> spacy.
+    Ritorna (disponibile: bool, nome_scheda: str|None)."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return True, torch.cuda.get_device_name(0)
+    except Exception:
+        pass
+    try:
+        import cupy
+        if cupy.cuda.runtime.getDeviceCount() > 0:
+            try:
+                props = cupy.cuda.runtime.getDeviceProperties(0)
+                name = props.get("name", b"")
+                name = name.decode() if isinstance(name, bytes) else str(name)
+            except Exception:
+                name = "NVIDIA GPU"
+            return True, name or "NVIDIA GPU"
+    except Exception:
+        pass
     try:
         import spacy
-        gpu = spacy.prefer_gpu()
+        if spacy.prefer_gpu():
+            return True, "NVIDIA GPU"
     except Exception:
-        gpu = False
+        pass
+    return False, None
+
+
+@app.get("/api/system-check")
+def system_check():
+    gpu, gpu_name = detect_gpu()
     graph_exists = os.path.exists(os.path.join(OUT_DIR, "graph_with_metrics.json"))
-    return {"gpu_available": gpu, "graph_exists": graph_exists}
+    return {"gpu_available": gpu, "gpu_name": gpu_name, "graph_exists": graph_exists}
 
 
 @app.post("/api/upload")
@@ -155,9 +182,9 @@ def run_pipeline():
     with open(LOG_FILE, "w") as log:
         log.write(f"Avvio Pipeline Arachne-Scholar (lang={lang_code}, run #{run_id})...\n")
         scripts = [
-            ("Ingestione PDF", f"python {BASE_DIR}/src/ingest_pdf.py {PDF_DIR} {MD_DIR}"),
-            ("Estrazione SVO", f"python {BASE_DIR}/src/extract_svo.py {MD_DIR} {OUT_DIR} {lang_code}"),
-            ("Calcolo Metriche SNA", f"python {BASE_DIR}/src/sna_metrics.py {OUT_DIR}/graph.json {final_graph}"),
+            ("Ingestione PDF", f"{sys.executable} {BASE_DIR}/src/ingest_pdf.py {PDF_DIR} {MD_DIR}"),
+            ("Estrazione SVO", f"{sys.executable} {BASE_DIR}/src/extract_svo.py {MD_DIR} {OUT_DIR} {lang_code}"),
+            ("Calcolo Metriche SNA", f"{sys.executable} {BASE_DIR}/src/sna_metrics.py {OUT_DIR}/graph.json {final_graph}"),
         ]
         try:
             for name, cmd in scripts:

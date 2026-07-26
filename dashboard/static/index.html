@@ -68,6 +68,12 @@
             background: rgba(34, 211, 238, 0.06);
         }
         .status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: pulse 2s infinite; }
+        .status-pill.gpu-on {
+            border-color: rgba(74, 222, 128, 0.55); color: #4ade80;
+            background: rgba(74, 222, 128, 0.09);
+            box-shadow: 0 0 16px rgba(74, 222, 128, 0.25);
+        }
+        .status-pill.gpu-on .dot { background: #4ade80; box-shadow: 0 0 10px #4ade80; }
         @keyframes pulse { 50% { opacity: 0.35; } }
 
         .container { max-width: 980px; margin: 0 auto; padding: 34px 20px 60px; }
@@ -466,11 +472,18 @@
 
         // ================= SYSTEM CHECK / SETTINGS / PROGETTI =================
         fetch('/api/system-check').then(r => r.json()).then(data => {
-            document.getElementById('gpu-status').innerHTML = data.gpu_available ?
-                '🚀 <strong>GPU attiva rilevata</strong> — pipeline accelerata hardware.' :
-                '💻 <strong>Modalità CPU</strong> — nessuna GPU rilevata, esecuzione standard.';
-            document.getElementById('hdr-status').textContent =
-                (data.gpu_available ? 'GPU-LINK' : 'CPU-LINK') + (data.graph_exists ? ' · GRAPH READY' : ' · IDLE');
+            const pill = document.getElementById('hdr-status');
+            if (data.gpu_available) {
+                const name = data.gpu_name || 'NVIDIA GPU';
+                document.getElementById('gpu-status').innerHTML =
+                    `🚀 <strong>GPU attiva: ${name}</strong> — pipeline accelerata hardware.`;
+                pill.textContent = `GPU-ACTIVE [${name}]` + (data.graph_exists ? ' · GRAPH READY' : '');
+                pill.classList.add('gpu-on');
+            } else {
+                document.getElementById('gpu-status').innerHTML =
+                    '💻 <strong>Modalità CPU</strong> — nessuna GPU rilevata, esecuzione standard.';
+                pill.textContent = 'CPU-LINK' + (data.graph_exists ? ' · GRAPH READY' : ' · IDLE');
+            }
         }).catch(() => { document.getElementById('hdr-status').textContent = 'OFFLINE'; });
 
         async function loadSettings() {
