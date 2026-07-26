@@ -585,7 +585,7 @@ def extract_cowindow_edges(doc, entities, window=5, max_per_window=12):
     return edges
 
 
-def chunk_text(text, max_chars=200_000):
+def chunk_text(text, max_chars=50_000):
     if len(text) <= max_chars:
         return [text]
     chunks, current = [], ""
@@ -627,10 +627,10 @@ def main():
     parser.add_argument("md_dir", nargs="?", default=os.path.expanduser("~/scholar_engine/converted_md"))
     parser.add_argument("out_dir", nargs="?", default=os.path.expanduser("~/scholar_engine/graph_out"))
     parser.add_argument("lang", nargs="?", default=LANG)
-    parser.add_argument("--co-threshold", type=int, default=2,
-                        help="min co-occorrenze per arco co_occurs (default 2; era 5)")
-    parser.add_argument("--min-freq", type=int, default=2,
-                        help="frequenza corpus minima per tenere un nodo senza legami (default 2)")
+    parser.add_argument("--co-threshold", type=int, default=4,
+                        help="min co-occorrenze per arco co_occurs (default 4; era 2)")
+    parser.add_argument("--min-freq", type=int, default=5,
+                        help="frequenza corpus minima (frasi) per tenere un nodo senza legami (default 5; era 2)")
     parser.add_argument("--window-size", type=int, default=5,
                         help="ampiezza finestra co-occorrenza in frasi (default 5)")
     args = parser.parse_args()
