@@ -15,7 +15,7 @@ import spacy
 # --- LINGUA & MODELLO (v1.2 multilingua EN/IT/ES) ------------------------------
 _lang_arg = sys.argv[3].lower() if len(sys.argv) > 3 and not sys.argv[3].startswith("-") else "en"
 LANG_MODELS = {
-    "en": "en_core_web_lg",
+    "en": "en_core_web_trf",
     "it": "it_core_news_lg",
     "es": "es_core_news_lg",
 }
@@ -610,7 +610,7 @@ def process_file(path, nlp, window_size=5):
     t0 = time.time()
 
     for i, piece in enumerate(pieces):
-        for doc in nlp.pipe([piece], batch_size=8):
+        for doc in nlp.pipe([piece], batch_size=32):
             entities = extract_entities(doc, entities, freq)
             svo_edges.update(extract_svo_edges(doc, entities))
             co_edges.update(extract_cowindow_edges(doc, entities, window=window_size))
@@ -720,7 +720,7 @@ def main():
         "meta": {"model": MODEL_NAME, "gpu": GPU_ACTIVE, "lang": LANG,
                  "co_threshold": args.co_threshold, "min_freq": args.min_freq,
                  "window_size": args.window_size, "hapax_removed": removed,
-                 "engine": "spacy lg: NER + noun chunks + dep parsing + sliding-window co-occurrence"},
+                 "engine": "spacy trf: NER + noun chunks + dep parsing + sliding-window co-occurrence"},
     }
 
     out_path = os.path.join(out_dir, "graph.json")

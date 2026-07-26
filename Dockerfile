@@ -21,8 +21,8 @@ RUN if [ "$INSTALL_GPU" = "true" ]; then \
         pip install '.[gpu]' || echo '[warn] extra GPU non installato, continuo in CPU'; \
     fi
 
-# Modello NLP inglese precaricato; IT/ES scaricati on-demand al primo uso
-RUN python -m spacy download en_core_web_lg
+# Modello NLP inglese precaricato (transformer, default); IT/ES scaricati on-demand
+RUN python -m spacy download en_core_web_trf
 
 EXPOSE 8000
 
