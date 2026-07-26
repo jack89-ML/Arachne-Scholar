@@ -20,6 +20,7 @@ RUNS_DIR = os.path.join(OUT_DIR, "runs")
 DB_PATH = os.path.join(DATA_DIR, "arachne.db")
 LOG_FILE = os.path.join(BASE_DIR, "pipeline.log")
 LANG_FILE = os.path.join(BASE_DIR, "pipeline.lang")
+SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
 
 for d in [PDF_DIR, MD_DIR, OUT_DIR, RUNS_DIR]:
     os.makedirs(d, exist_ok=True)
@@ -37,6 +38,11 @@ def db():
                ts TEXT, lang TEXT, status TEXT,
                nodes INTEGER, edges INTEGER, graph_path TEXT)"""
     )
+    # Migrazione schema: colonna nome_progetto (rinominabile da UI)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(runs)").fetchall()]
+    if "nome_progetto" not in cols:
+        conn.execute("ALTER TABLE runs ADD COLUMN nome_progetto TEXT DEFAULT ''")
+        conn.commit()
     return conn
 
 
@@ -128,6 +134,17 @@ def run_pipeline():
     if os.path.exists(LANG_FILE):
         lang_code = open(LANG_FILE).read().strip() or "en"
 
+    # Settings: forza CPU se richiesto (CUDA invisibile ai subprocess NLP)
+    settings = {}
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            settings = json.load(open(SETTINGS_FILE))
+        except Exception:
+            pass
+    child_env = os.environ.copy()
+    if settings.get("force_cpu"):
+        child_env["CUDA_VISIBLE_DEVICES"] = ""
+
     run_id = register_run(lang_code)
     final_graph = os.path.join(OUT_DIR, "graph_with_metrics.json")
 
@@ -143,7 +160,7 @@ def run_pipeline():
                 log.write(f"\n--- ESECUZIONE: {name} ---\n")
                 log.flush()
                 process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
-                                           stderr=subprocess.STDOUT, text=True)
+                                           stderr=subprocess.STDOUT, text=True, env=child_env)
                 for line in process.stdout or []:
                     log.write(line)
                     log.flush()
@@ -218,16 +235,30 @@ def list_runs():
         _backfill_legacy_run()
         conn = db()
         rows = conn.execute(
-            "SELECT id, ts, lang, status, nodes, edges FROM runs ORDER BY id DESC LIMIT 20"
+            "SELECT id, ts, lang, status, nodes, edges, nome_progetto FROM runs ORDER BY id DESC LIMIT 20"
         ).fetchall()
         conn.close()
         return {"runs": [
             {"id": r[0], "ts": r[1], "lang": r[2], "status": r[3], "nodes": r[4], "edges": r[5],
+             "nome_progetto": r[6] or f"Progetto #{r[0]}",
              "has_graph": os.path.exists(os.path.join(RUNS_DIR, f"run_{r[0]}_graph.json"))}
             for r in rows
         ]}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/api/runs/{run_id}/rename")
+async def rename_run(run_id: int, payload: dict):
+    """Rinomina un progetto al volo (tasto matita nelle card Home)."""
+    name = str(payload.get("name", "")).strip()[:80]
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "Nome vuoto."})
+    conn = db()
+    conn.execute("UPDATE runs SET nome_progetto=? WHERE id=?", (name, run_id))
+    conn.commit()
+    conn.close()
+    return {"status": "renamed", "run_id": run_id, "nome_progetto": name}
 
 
 @app.post("/api/runs/{run_id}/activate")
@@ -241,8 +272,30 @@ def activate_run(run_id: int):
     return {"status": "activated", "run_id": run_id}
 
 
+# ------------------------------------------------------------- settings API
+@app.get("/api/settings")
+def get_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            return json.load(open(SETTINGS_FILE))
+        except Exception:
+            pass
+    return {"nlp_model": "auto", "force_cpu": False}
+
+
+@app.post("/api/settings")
+async def save_settings(payload: dict):
+    data = {
+        "nlp_model": str(payload.get("nlp_model", "auto"))[:40],
+        "force_cpu": bool(payload.get("force_cpu", False)),
+    }
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(data, f)
+    return {"status": "saved", **data}
+
+
 # ------------------------------------------------------- export GEXF/GraphML
-def _build_nx():
+def _build_nx(scope="all"):
     import networkx as nx
     metrics_path = os.path.join(OUT_DIR, "graph_with_metrics.json")
     base_path = os.path.join(OUT_DIR, "graph.json")
@@ -252,8 +305,19 @@ def _build_nx():
         return None
     with open(src, encoding="utf-8") as f:
         data = json.load(f)
+
+    # scope="hub": stesso filtro del canvas (grado>0, top 400 per betweenness)
+    nodes = data["nodes"]
+    if scope == "hub":
+        hubs = [n for n in nodes if (n.get("metrics", {}) or {}).get("degree", 0) > 0]
+        hubs.sort(key=lambda n: -((n.get("metrics", {}) or {}).get("betweenness", 0)))
+        keep = {n["id"] for n in hubs[:400]}
+        nodes = [n for n in nodes if n["id"] in keep]
+    else:
+        keep = None
+
     G = nx.DiGraph()
-    for n in data["nodes"]:
+    for n in nodes:
         m = n.get("metrics", {}) or {}
         G.add_node(n["id"], label=str(n.get("label", n["id"])),
                    type=str(n.get("type", "concept")),
@@ -262,32 +326,34 @@ def _build_nx():
                    constraint=float(m.get("constraint", 1.0)),
                    community=int(m.get("community", 0)))
     for e in data.get("edges", data.get("links", [])):
+        if keep is not None and (e["source"] not in keep or e["target"] not in keep):
+            continue
         G.add_edge(e["source"], e["target"],
                    relation=str(e.get("relation", "")),
                    weight=float(e.get("weight", 1)))
     return G
 
 
-def _export(fmt):
-    G = _build_nx()
+def _export(fmt, scope="all"):
+    G = _build_nx(scope)
     if G is None:
         return JSONResponse(status_code=404, content={"error": "Nessun grafo da esportare."})
     suffix = ".gexf" if fmt == "gexf" else ".graphml"
-    tmp = os.path.join(tempfile.gettempdir(), f"arachne_export{suffix}")
+    tmp = os.path.join(tempfile.gettempdir(), f"arachne_export_{scope}{suffix}")
     import networkx as nx
     if fmt == "gexf":
         nx.write_gexf(G, tmp)
     else:
         nx.write_graphml(G, tmp)
     return FileResponse(tmp, media_type="application/xml",
-                        filename=f"arachne_scholar{suffix}")
+                        filename=f"arachne_scholar_{scope}{suffix}")
 
 
 @app.get("/api/export/gexf")
-def export_gexf():
-    return _export("gexf")
+def export_gexf(scope: str = "all"):
+    return _export("gexf", scope)
 
 
 @app.get("/api/export/graphml")
-def export_graphml():
-    return _export("graphml")
+def export_graphml(scope: str = "all"):
+    return _export("graphml", scope)
