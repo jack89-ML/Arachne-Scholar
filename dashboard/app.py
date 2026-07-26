@@ -23,6 +23,7 @@ DB_PATH = os.path.join(DATA_DIR, "arachne.db")
 LOG_FILE = os.path.join(BASE_DIR, "pipeline.log")
 LANG_FILE = os.path.join(BASE_DIR, "pipeline.lang")
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
+ACTIVE_FILE = os.path.join(OUT_DIR, "active_run.txt")
 
 for d in [PDF_DIR, MD_DIR, OUT_DIR, RUNS_DIR]:
     os.makedirs(d, exist_ok=True)
@@ -94,6 +95,36 @@ def wipe_dir(path, ignore=frozenset()):
                 os.remove(p)
             except OSError:
                 pass
+
+
+def _is_valid_graph_file(path):
+    """True se il file esiste, e' JSON valido e ha forma di grafo
+    (dict con lista 'nodes' e lista 'edges' oppure 'links')."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            g = json.load(f)
+        if not isinstance(g, dict) or not isinstance(g.get("nodes"), list):
+            return False
+        return isinstance(g.get("edges"), list) or isinstance(g.get("links"), list)
+    except Exception:
+        return False
+
+
+def _set_active_run(run_id):
+    """Marca quale run e' attualmente servito come grafo live."""
+    try:
+        with open(ACTIVE_FILE, "w") as f:
+            f.write(str(run_id))
+    except OSError:
+        pass
+
+
+def _get_active_run():
+    try:
+        with open(ACTIVE_FILE) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
 
 
 # ------------------------------------------------------------------- rotte UI
@@ -213,6 +244,7 @@ def run_pipeline():
                 archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
                 shutil.copy2(final_graph, archive)
             close_run(run_id, graph_json=final_graph, status="done")
+            _set_active_run(run_id)
             log.write("\n=== PIPELINE COMPLETATA ===")
         except Exception as e:
             log.write(f"\n!!! ECCEZIONE: {e}\n")
@@ -235,13 +267,27 @@ def get_logs():
 
 @app.get("/api/graph")
 def get_graph():
+    """Grafo attivo. Risponde SEMPRE 200 con JSON formalmente valido:
+    se il file manca, e' corrotto o non ha la forma attesa, restituisce
+    un grafo vuoto {'nodes': [], 'edges': []} cosi' Sigma.js non crasha."""
+    empty = {"nodes": [], "edges": []}
     metrics_path = os.path.join(OUT_DIR, "graph_with_metrics.json")
     base_path = os.path.join(OUT_DIR, "graph.json")
-    if os.path.exists(metrics_path):
-        return FileResponse(metrics_path)
-    elif os.path.exists(base_path):
-        return FileResponse(base_path)
-    return JSONResponse(status_code=404, content={"error": "Grafo non trovato."})
+    src = metrics_path if os.path.exists(metrics_path) else (
+        base_path if os.path.exists(base_path) else None)
+    if src is None:
+        return JSONResponse(content=empty)
+    try:
+        with open(src, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
+            return JSONResponse(content=empty)
+        if not isinstance(data.get("edges"), list):
+            links = data.get("links")
+            data["edges"] = links if isinstance(links, list) else []
+        return JSONResponse(content=data)
+    except Exception:
+        return JSONResponse(content=empty)
 
 
 def _backfill_legacy_run():
@@ -263,6 +309,7 @@ def _backfill_legacy_run():
             rid = cur.lastrowid
             shutil.copy2(metrics_path, os.path.join(RUNS_DIR, f"run_{rid}_graph.json"))
             conn.commit()
+            _set_active_run(rid)
         except Exception:
             pass
     conn.close()
@@ -276,6 +323,16 @@ def list_runs():
         rows = conn.execute(
             "SELECT id, ts, lang, status, nodes, edges, nome_progetto FROM runs ORDER BY id DESC LIMIT 20"
         ).fetchall()
+        # SELF-HEALING: i run terminali il cui archivio e' sparito dal disco
+        # (cancellazione manuale, restore parziale, vecchi bug) non sono
+        # apribili -> espunti dal registro. Mai piu' card fantasma.
+        ghosts = [r[0] for r in rows
+                  if r[3] in ("done", "error")
+                  and not os.path.exists(os.path.join(RUNS_DIR, f"run_{r[0]}_graph.json"))]
+        if ghosts:
+            conn.executemany("DELETE FROM runs WHERE id=?", [(g,) for g in ghosts])
+            conn.commit()
+            rows = [r for r in rows if r[0] not in ghosts]
         conn.close()
         return {"runs": [
             {"id": r[0], "ts": r[1], "lang": r[2], "status": r[3], "nodes": r[4], "edges": r[5],
@@ -302,38 +359,59 @@ async def rename_run(run_id: int, payload: dict):
 
 @app.post("/api/runs/{run_id}/activate")
 def activate_run(run_id: int):
-    """Promuove un run archiviato a grafo attivo (aperto dalla griglia progetti)."""
+    """Promuove un run archiviato a grafo attivo (aperto dalla griglia progetti).
+    Robusto: verifica il record DB, ricostruisce l'archivio dal graph_path
+    registrato se manca, e valida il JSON prima di copiarlo sui file live."""
+    conn = db()
+    row = conn.execute("SELECT graph_path FROM runs WHERE id = ?", (run_id,)).fetchone()
+    conn.close()
+    if not row:
+        return JSONResponse(status_code=404, content={"error": f"Progetto #{run_id} non trovato nel registro."})
     archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
-    if not os.path.exists(archive):
-        return JSONResponse(status_code=404, content={"error": f"Archivio run #{run_id} non trovato."})
+    if not _is_valid_graph_file(archive):
+        # Fallback: ricostruisci l'archivio dal percorso grafo registrato nel DB
+        gp = row[0] or ""
+        if gp and os.path.abspath(gp) != os.path.abspath(archive) and _is_valid_graph_file(gp):
+            os.makedirs(RUNS_DIR, exist_ok=True)
+            shutil.copy2(gp, archive)
+        if not _is_valid_graph_file(archive):
+            return JSONResponse(status_code=404, content={"error": f"Archivio del progetto #{run_id} assente o corrotto."})
     shutil.copy2(archive, os.path.join(OUT_DIR, "graph_with_metrics.json"))
     shutil.copy2(archive, os.path.join(OUT_DIR, "graph.json"))
+    _set_active_run(run_id)
     return {"status": "activated", "run_id": run_id}
 
 
 @app.delete("/api/projects/{run_id}")
 async def delete_project(run_id: int):
-    """Elimina un progetto: record DB, archivio grafo e (se attivo) i file live."""
+    """Elimina un progetto: record DB + archivio grafo. I file live vengono
+    rimossi SOLO se il progetto eliminato e' quello attivo (tracciato via
+    active_run.txt): cancellare un progetto non aperto non svuota piu' la
+    dashboard. Gestisce anche gli archivi orfani senza record DB."""
     conn = db()
     row = conn.execute("SELECT id FROM runs WHERE id = ?", (run_id,)).fetchone()
-    if not row:
-        conn.close()
-        return JSONResponse(status_code=404, content={"error": f"Progetto #{run_id} non trovato."})
-    conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
-    conn.commit()
+    if row:
+        conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+        conn.commit()
     conn.close()
-    # Archivio run
     archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
-    if os.path.exists(archive):
+    had_archive = os.path.exists(archive)
+    if had_archive:
         os.remove(archive)
-    # Se il grafo attivo e' questo run, rimuovi anche i file live
-    for fname in ["graph.json", "graph_with_metrics.json"]:
-        p = os.path.join(OUT_DIR, fname)
-        if os.path.exists(p):
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+    if _get_active_run() == run_id:
+        for fname in ["graph.json", "graph_with_metrics.json"]:
+            p = os.path.join(OUT_DIR, fname)
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        try:
+            os.remove(ACTIVE_FILE)
+        except OSError:
+            pass
+    if not row and not had_archive:
+        return JSONResponse(status_code=404, content={"error": f"Progetto #{run_id} non trovato."})
     return {"status": "deleted", "run_id": run_id}
 
 
