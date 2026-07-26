@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 import os
 import sys
+import re
 import json
 import sqlite3
 import subprocess
@@ -310,6 +311,32 @@ def activate_run(run_id: int):
     return {"status": "activated", "run_id": run_id}
 
 
+@app.delete("/api/projects/{run_id}")
+async def delete_project(run_id: int):
+    """Elimina un progetto: record DB, archivio grafo e (se attivo) i file live."""
+    conn = db()
+    row = conn.execute("SELECT id FROM runs WHERE id = ?", (run_id,)).fetchone()
+    if not row:
+        conn.close()
+        return JSONResponse(status_code=404, content={"error": f"Progetto #{run_id} non trovato."})
+    conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+    conn.commit()
+    conn.close()
+    # Archivio run
+    archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
+    if os.path.exists(archive):
+        os.remove(archive)
+    # Se il grafo attivo e' questo run, rimuovi anche i file live
+    for fname in ["graph.json", "graph_with_metrics.json"]:
+        p = os.path.join(OUT_DIR, fname)
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+    return {"status": "deleted", "run_id": run_id}
+
+
 # ------------------------------------------------------------- settings API
 @app.get("/api/settings")
 def get_settings():
@@ -330,6 +357,14 @@ async def save_settings(payload: dict):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(data, f)
     return {"status": "saved", **data}
+
+
+def purify_xml(text):
+    """(FIX) Purifica una stringa da caratteri di controllo ASCII illegali
+    che mandano in crash i parser XML rigorosi (Gephi, GraphML). Rimuove
+    l'intervallo [\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f] lasciando stampabili,
+    \\n, \\t, \\r. Applicabile a XML, GraphML, JSON prima della scrittura I/O."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
 
 
 # ------------------------------------------------------- export GEXF/GraphML
@@ -383,6 +418,11 @@ def _export(fmt, scope="all"):
         nx.write_gexf(G, tmp)
     else:
         nx.write_graphml(G, tmp)
+    # (FIX hard-ASCII) Purificazione dell'intero buffer XML prima di servirlo
+    with open(tmp, "r", encoding="utf-8", errors="replace") as tf:
+        raw = tf.read()
+    with open(tmp, "w", encoding="utf-8") as tf:
+        tf.write(purify_xml(raw))
     return FileResponse(tmp, media_type="application/xml",
                         filename=f"arachne_scholar_{scope}{suffix}")
 

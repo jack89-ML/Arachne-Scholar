@@ -3,900 +3,293 @@
 <head>
     <meta charset="UTF-8">
     <title>ARACHNE // SCHOLAR — Tactical HUD</title>
-    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="https://unpkg.com/graphology/dist/graphology.umd.min.js"></script>
+    <script src="https://unpkg.com/sigma/build/sigma.min.js"></script>
+    <script src="https://unpkg.com/graphology-layout-forceatlas2/build/graphology-layout-forceatlas2.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-deep: #0a0612;
-            --violet: #a855f7;
-            --violet-soft: #bb86fc;
-            --cyan: #22d3ee;
-            --text: #e2e8f0;
-            --text-dim: #8b7bb8;
-            --glass: rgba(255, 255, 255, 0.03);
-            --glass-border: rgba(168, 85, 247, 0.25);
+            --bg-deep: #0a0612; --violet: #a855f7; --violet-soft: #bb86fc; --cyan: #22d3ee;
+            --text: #e2e8f0; --text-dim: #8b7bb8; --glass: rgba(255,255,255,0.03);
+            --glass-border: rgba(168,85,247,0.25); --amber: #fbbf24; --red: #f472b6; --green: #4ade80;
         }
         * { box-sizing: border-box; }
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-deep);
-            color: var(--text);
-            margin: 0;
-            min-height: 100vh;
-            padding-top: 64px;
-        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-deep); color: var(--text); margin: 0; min-height: 100vh; padding-top: 64px; }
         .hud-bg {
             position: fixed; inset: 0; z-index: -1;
-            background:
-                repeating-radial-gradient(circle at 50% 42%, transparent 0px, transparent 118px, rgba(168, 85, 247, 0.055) 119px, transparent 120px),
-                repeating-radial-gradient(circle at 50% 42%, transparent 0px, transparent 358px, rgba(34, 211, 238, 0.05) 359px, transparent 360px),
-                radial-gradient(ellipse 90% 65% at 50% 38%, rgba(88, 28, 135, 0.28), transparent 70%),
-                linear-gradient(rgba(168, 85, 247, 0.035) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(168, 85, 247, 0.035) 1px, transparent 1px),
-                var(--bg-deep);
+            background: repeating-radial-gradient(circle at 50% 42%, transparent 0px, transparent 118px, rgba(168,85,247,0.055) 119px, transparent 120px),
+                repeating-radial-gradient(circle at 50% 42%, transparent 0px, transparent 358px, rgba(34,211,238,0.05) 359px, transparent 360px),
+                radial-gradient(ellipse 90% 65% at 50% 38%, rgba(88,28,135,0.28), transparent 70%),
+                linear-gradient(rgba(168,85,247,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(168,85,247,0.035) 1px, transparent 1px), var(--bg-deep);
             background-size: auto, auto, auto, 56px 56px, 56px 56px, auto;
         }
-        .hud-bg::after {
-            content: ""; position: absolute; inset: 0;
-            background: conic-gradient(from 0deg at 50% 42%, transparent 0deg, rgba(34, 211, 238, 0.06) 12deg, transparent 24deg, transparent 90deg, rgba(168, 85, 247, 0.05) 102deg, transparent 114deg);
-            animation: sweep 24s linear infinite;
-        }
+        .hud-bg::after { content:""; position:absolute; inset:0; background:conic-gradient(from 0deg at 50% 42%, transparent 0deg, rgba(34,211,238,0.06) 12deg, transparent 24deg, transparent 90deg, rgba(168,85,247,0.05) 102deg, transparent 114deg); animation:sweep 24s linear infinite; }
         @keyframes sweep { to { transform: rotate(360deg); } }
-
         .hud-header {
-            position: fixed; top: 0; left: 0; right: 0; height: 64px; z-index: 100;
-            display: flex; align-items: center; gap: 18px; padding: 0 26px;
-            background: rgba(10, 6, 18, 0.82);
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--glass-border);
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.12);
+            position: fixed; top:0; left:0; right:0; height:64px; z-index:100;
+            display:flex; align-items:center; gap:18px; padding:0 26px;
+            background:rgba(10,6,18,0.82); backdrop-filter:blur(20px);
+            border-bottom:1px solid var(--glass-border); box-shadow:0 0 30px rgba(168,85,247,0.12);
         }
-        .brand { display: flex; align-items: center; gap: 12px; }
-        .brand .glyph {
-            width: 34px; height: 34px; border-radius: 9px;
-            background: linear-gradient(135deg, var(--violet), #3b0764);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 18px; box-shadow: 0 0 18px rgba(168, 85, 247, 0.55);
-        }
-        .brand h1 { font-family: 'JetBrains Mono', monospace; font-size: 15px; letter-spacing: 3px; margin: 0; color: #fff; }
-        .brand h1 span { color: var(--violet); }
-        .status-pill {
-            font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1px;
-            padding: 6px 14px; border-radius: 20px; display: flex; align-items: center; gap: 8px;
-            border: 1px solid rgba(34, 211, 238, 0.35); color: var(--cyan);
-            background: rgba(34, 211, 238, 0.06);
-        }
-        .status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: pulse 2s infinite; }
-        .status-pill.gpu-on {
-            border-color: rgba(74, 222, 128, 0.55); color: #4ade80;
-            background: rgba(74, 222, 128, 0.09);
-            box-shadow: 0 0 16px rgba(74, 222, 128, 0.25);
-        }
-        .status-pill.gpu-on .dot { background: #4ade80; box-shadow: 0 0 10px #4ade80; }
-        .status-pill.gpu-idle {
-            border-color: rgba(251, 191, 36, 0.55); color: #fbbf24;
-            background: rgba(251, 191, 36, 0.09);
-            box-shadow: 0 0 16px rgba(251, 191, 36, 0.30);
-        }
-        .status-pill.gpu-idle .dot { background: #fbbf24; box-shadow: 0 0 10px #fbbf24; }
-        @keyframes pulse { 50% { opacity: 0.35; } }
+        .brand { display:flex; align-items:center; gap:12px; }
+        .brand .glyph { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg, var(--violet), #3b0764); display:flex; align-items:center; justify-content:center; font-size:18px; box-shadow:0 0 18px rgba(168,85,247,0.55); }
+        .brand h1 { font-family:'JetBrains Mono',monospace; font-size:15px; letter-spacing:3px; margin:0; color:#fff; }
+        .brand h1 span { color:var(--violet); }
+        .status-pill { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; padding:6px 14px; border-radius:20px; display:flex; align-items:center; gap:8px; border:1px solid rgba(34,211,238,0.35); color:var(--cyan); background:rgba(34,211,238,0.06); }
+        .status-pill .dot { width:7px; height:7px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan); animation:pulse 2s infinite; }
+        .status-pill.gpu-on { border-color:rgba(74,222,128,0.55); color:var(--green); background:rgba(74,222,128,0.09); box-shadow:0 0 16px rgba(74,222,128,0.25); }
+        .status-pill.gpu-on .dot { background:var(--green); box-shadow:0 0 10px var(--green); }
+        .status-pill.gpu-idle { border-color:rgba(251,191,36,0.55); color:var(--amber); background:rgba(251,191,36,0.09); box-shadow:0 0 16px rgba(251,191,36,0.30); }
+        .status-pill.gpu-idle .dot { background:var(--amber); box-shadow:0 0 10px var(--amber); }
+        @keyframes pulse { 50% { opacity:0.35; } }
 
-        .container { max-width: 980px; margin: 0 auto; padding: 34px 20px 60px; }
-        .container-wide { max-width: 96vw; }
-        .card {
-            background: var(--glass);
-            backdrop-filter: blur(24px);
-            border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 30px;
-            box-shadow: 0 0 50px rgba(168, 85, 247, 0.10), inset 0 1px 0 rgba(255,255,255,0.04);
-            margin-bottom: 20px;
-        }
-        h2 { font-size: 22px; font-weight: 700; color: #fff; margin: 0 0 6px; }
-        h2 em { color: var(--violet); font-style: normal; }
-        .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 18px; }
-        .mono-label {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 2px;
-            text-transform: uppercase; color: var(--cyan); display: block; margin-bottom: 10px;
-        }
-        .wizard-step { display: none; }
-        .wizard-step.active { display: block; animation: fadeIn 0.45s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } }
+        .container { max-width:980px; margin:0 auto; padding:34px 20px 60px; }
+        .container-wide { max-width:96vw; }
+        .card { background:var(--glass); backdrop-filter:blur(24px); border:1px solid var(--glass-border); border-radius:24px; padding:30px; box-shadow:0 0 50px rgba(168,85,247,0.10), inset 0 1px 0 rgba(255,255,255,0.04); margin-bottom:20px; transition:transform 0.25s, border-color 0.25s, box-shadow 0.25s; }
+        h2 { font-size:22px; font-weight:700; color:#fff; margin:0 0 6px; }
+        h2 em { color:var(--violet); font-style:normal; }
+        .sub { color:var(--text-dim); font-size:13px; margin-bottom:18px; }
+        .mono-label { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--cyan); display:block; margin-bottom:10px; }
+        .wizard-step { display:none; }
+        .wizard-step.active { display:block; animation:fadeIn 0.45s ease; }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } }
+        .btn { background:linear-gradient(135deg, var(--violet), #7c3aed); color:#fff; border:none; padding:12px 26px; border-radius:10px; cursor:pointer; font-weight:600; font-family:'Inter',sans-serif; font-size:14px; margin-top:12px; box-shadow:0 0 20px rgba(168,85,247,0.35); transition:all 0.2s; }
+        .btn:hover { box-shadow:0 0 32px rgba(168,85,247,0.65); transform:translateY(-1px); }
+        .btn.ghost { background:transparent; border:1px solid var(--glass-border); color:var(--violet-soft); box-shadow:none; }
+        .btn.small { padding:8px 16px; font-size:12px; margin-top:8px; }
+        .btn.danger { background:linear-gradient(135deg, #f472b6, #e11d48); color:#fff; }
+        select.btn { background:rgba(168,85,247,0.10); color:var(--text); border:1px solid var(--glass-border); box-shadow:none; }
+        select.btn option, select option { background:var(--bg-deep)!important; color:var(--text)!important; }
+        input[type="file"] { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-dim); background:rgba(0,0,0,0.3); border:1px dashed var(--glass-border); border-radius:10px; padding:14px; width:100%; margin-bottom:6px; }
+        input[type="text"], .rename-input { font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text); background:rgba(0,0,0,0.35); border:1px solid var(--glass-border); border-radius:9px; padding:9px 14px; outline:none; width:100%; }
+        input[type="text"]:focus { border-color:var(--cyan); box-shadow:0 0 12px rgba(34,211,238,0.25); }
 
-        .btn {
-            background: linear-gradient(135deg, var(--violet), #7c3aed); color: #fff; border: none;
-            padding: 12px 26px; border-radius: 10px; cursor: pointer; font-weight: 600;
-            font-family: 'Inter', sans-serif; font-size: 14px; margin-top: 12px;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.35); transition: all 0.2s;
-        }
-        .btn:hover { box-shadow: 0 0 32px rgba(168, 85, 247, 0.65); transform: translateY(-1px); }
-        .btn.ghost { background: transparent; border: 1px solid var(--glass-border); color: var(--violet-soft); box-shadow: none; }
-        .btn.small { padding: 8px 16px; font-size: 12px; margin-top: 8px; }
-        select.btn {
-            background: rgba(168, 85, 247, 0.10); color: var(--text);
-            border: 1px solid var(--glass-border); box-shadow: none;
-        }
-        select.btn option, select option {
-            background: var(--bg-deep) !important;
-            color: var(--text) !important;
-        }
-        input[type="file"] {
-            font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim);
-            background: rgba(0,0,0,0.3); border: 1px dashed var(--glass-border);
-            border-radius: 10px; padding: 14px; width: 100%; margin-bottom: 6px;
-        }
-        input[type="text"], .rename-input {
-            font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text);
-            background: rgba(0,0,0,0.35); border: 1px solid var(--glass-border);
-            border-radius: 9px; padding: 9px 14px; outline: none; width: 100%;
-        }
-        input[type="text"]:focus, .rename-input:focus { border-color: var(--cyan); box-shadow: 0 0 12px rgba(34,211,238,0.25); }
+        .projects-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:16px; margin-bottom:24px; }
+        .project-card { background:var(--glass); backdrop-filter:blur(18px); border:1px solid var(--glass-border); border-radius:16px; padding:18px; transition:all 0.25s; position:relative; }
+        .project-card:hover { border-color:rgba(168,85,247,0.6); box-shadow:0 0 26px rgba(168,85,247,0.30); transform:translateY(-4px); }
+        .project-card .p-name { font-family:'JetBrains Mono',monospace; font-size:12px; color:#fff; display:inline-block; max-width:70%; }
+        .project-card .p-date { font-size:11px; color:var(--text-dim); margin-top:3px; }
+        .project-card .p-stats { font-family:'JetBrains Mono',monospace; font-size:14px; color:#fff; margin:12px 0 4px; font-weight:600; }
+        .project-card .p-lang { position:absolute; top:14px; right:14px; font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px; padding:3px 9px; border-radius:10px; text-transform:uppercase; color:var(--violet-soft); border:1px solid var(--glass-border); background:rgba(168,85,247,0.10); }
+        .project-card .p-rename { background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:13px; padding:2px 5px; vertical-align:middle; }
+        .project-card .p-rename:hover { color:var(--cyan); }
+        .project-card .p-open { width:100%; }
+        .project-card .p-delete { position:absolute; bottom:14px; right:14px; background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:14px; }
+        .project-card .p-delete:hover { color:var(--red); }
+        .p-status { display:inline-block; font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:1px; text-transform:uppercase; padding:2px 8px; border-radius:8px; margin-top:8px; }
+        .p-status.status-done { color:var(--green); border:1px solid rgba(74,222,128,0.35); background:rgba(74,222,128,0.08); }
+        .p-status.status-running { color:var(--cyan); border:1px solid rgba(34,211,238,0.35); background:rgba(34,211,238,0.08); }
+        .p-status.status-error { color:var(--red); border:1px solid rgba(244,114,182,0.35); background:rgba(244,114,182,0.08); }
+        .p-status.status-queued { color:var(--amber); border:1px solid rgba(251,191,36,0.35); background:rgba(251,191,36,0.08); }
 
-        .projects-grid {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-            gap: 16px; margin-bottom: 24px;
-        }
-        .project-card {
-            background: var(--glass); backdrop-filter: blur(18px);
-            border: 1px solid var(--glass-border); border-radius: 16px;
-            padding: 18px; transition: all 0.25s; position: relative;
-        }
-        .project-card:hover { border-color: rgba(168, 85, 247, 0.6); box-shadow: 0 0 26px rgba(168, 85, 247, 0.25); transform: translateY(-3px); }
-        .project-card .p-name {
-            font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #fff;
-            display: inline-block; max-width: 75%;
-        }
-        .project-card .p-date { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
-        .project-card .p-stats { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); margin: 12px 0 4px; }
-        .project-card .p-lang {
-            position: absolute; top: 14px; right: 14px;
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1px;
-            padding: 3px 9px; border-radius: 10px; text-transform: uppercase;
-            color: var(--violet-soft); border: 1px solid var(--glass-border);
-            background: rgba(168, 85, 247, 0.10);
-        }
-        .project-card .p-rename {
-            background: none; border: none; cursor: pointer; color: var(--text-dim);
-            font-size: 13px; padding: 2px 5px; vertical-align: middle;
-        }
-        .project-card .p-rename:hover { color: var(--cyan); }
-        .project-card .p-open { width: 100%; }
-        .project-card.new-project {
-            border: 2px dashed rgba(34, 211, 238, 0.5);
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            min-height: 150px; cursor: pointer; text-align: center;
-        }
-        .project-card.new-project:hover { box-shadow: 0 0 26px rgba(34, 211, 238, 0.3); border-color: var(--cyan); }
-        .project-card.new-project .plus { font-size: 38px; color: var(--cyan); font-weight: 300; text-shadow: 0 0 18px rgba(34, 211, 238, 0.7); }
-        .project-card.new-project .np-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px; color: var(--cyan); margin-top: 6px; }
-        #upload-panel { display: none; }
-        #upload-panel.open { display: block; animation: fadeIn 0.4s ease; }
+        .project-card.new-project { border:2px dashed rgba(34,211,238,0.5); display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:150px; cursor:pointer; text-align:center; }
+        .project-card.new-project:hover { box-shadow:0 0 26px rgba(34,211,238,0.3); border-color:var(--cyan); }
+        .project-card.new-project .plus { font-size:38px; color:var(--cyan); font-weight:300; text-shadow:0 0 18px rgba(34,211,238,0.7); }
+        .project-card.new-project .np-label { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:2px; color:var(--cyan); margin-top:6px; }
+        #upload-panel { display:none; }
+        #upload-panel.open { display:block; animation:fadeIn 0.4s ease; }
+        .file-preview { margin:10px 0; padding:10px; border:1px solid var(--glass-border); border-radius:10px; background:rgba(0,0,0,0.2); font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); max-height:120px; overflow-y:auto; }
+        .file-preview .fp-item { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid rgba(168,85,247,0.08); }
+        .file-preview .fp-size { color:var(--cyan); }
 
-        .settings-grid { display: flex; gap: 24px; flex-wrap: wrap; }
-        .setting-item { flex: 1; min-width: 220px; }
-        .toggle-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
-        .toggle {
-            width: 46px; height: 24px; border-radius: 14px; position: relative; cursor: pointer;
-            background: rgba(255,255,255,0.08); border: 1px solid var(--glass-border); transition: all 0.25s;
-        }
-        .toggle::after {
-            content: ""; position: absolute; top: 2px; left: 3px; width: 17px; height: 17px;
-            border-radius: 50%; background: var(--text-dim); transition: all 0.25s;
-        }
-        .toggle.on { background: rgba(34, 211, 238, 0.25); border-color: var(--cyan); }
-        .toggle.on::after { left: 24px; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
-        .toggle-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); letter-spacing: 1px; }
-        #settings-saved {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #4ade80;
-            opacity: 0; transition: opacity 0.4s; margin-left: 10px;
-        }
+        .settings-grid { display:flex; gap:24px; flex-wrap:wrap; }
+        .setting-item { flex:1; min-width:220px; }
+        .toggle-row { display:flex; align-items:center; gap:12px; margin-top:10px; }
+        .toggle { width:46px; height:24px; border-radius:14px; position:relative; cursor:pointer; background:rgba(255,255,255,0.08); border:1px solid var(--glass-border); transition:all 0.25s; }
+        .toggle::after { content:""; position:absolute; top:2px; left:3px; width:17px; height:17px; border-radius:50%; background:var(--text-dim); transition:all 0.25s; }
+        .toggle.on { background:rgba(34,211,238,0.25); border-color:var(--cyan); }
+        .toggle.on::after { left:24px; background:var(--cyan); box-shadow:0 0 10px var(--cyan); }
+        .toggle-label { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); letter-spacing:1px; }
+        #settings-saved { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--green); opacity:0; transition:opacity 0.4s; margin-left:10px; }
 
-        .log-window {
-            background: rgba(0, 0, 0, 0.55); color: #4ade80;
-            font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.55;
-            padding: 18px; height: 280px; overflow-y: scroll;
-            border-radius: 12px; border: 1px solid rgba(74, 222, 128, 0.15);
-            white-space: pre-wrap; margin-top: 18px;
-        }
-        .progress-stack { margin-top: 22px; display: flex; flex-direction: column; gap: 14px; }
-        .stage-row { display: flex; align-items: center; gap: 14px; }
-        .stage-tag { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1px; color: var(--text-dim); width: 150px; text-align: right; text-transform: uppercase; }
-        .stage-row.active .stage-tag { color: var(--cyan); }
-        .stage-row.done .stage-tag { color: #4ade80; }
-        .stage-track { flex: 1; height: 10px; border-radius: 6px; overflow: hidden; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(168, 85, 247, 0.15); }
-        .stage-fill {
-            height: 100%; width: 0%;
-            background: linear-gradient(90deg, var(--violet), var(--cyan));
-            box-shadow: 0 0 14px rgba(168, 85, 247, 0.8);
-            border-radius: 6px; transition: width 0.6s ease; position: relative;
-        }
-        .stage-row.active .stage-fill::after {
-            content: ""; position: absolute; inset: 0;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
-            animation: shimmer 1.2s infinite;
-        }
-        @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+        .log-window { background:rgba(0,0,0,0.55); color:var(--green); font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.55; padding:18px; height:280px; overflow-y:scroll; border-radius:12px; border:1px solid rgba(74,222,128,0.15); white-space:pre-wrap; margin-top:18px; }
+        .progress-stack { margin-top:22px; display:flex; flex-direction:column; gap:14px; }
+        .stage-row { display:flex; align-items:center; gap:14px; }
+        .stage-tag { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px; color:var(--text-dim); width:150px; text-align:right; text-transform:uppercase; }
+        .stage-row.active .stage-tag { color:var(--cyan); }
+        .stage-row.done .stage-tag { color:var(--green); }
+        .stage-track { flex:1; height:10px; border-radius:6px; overflow:hidden; background:rgba(255,255,255,0.05); border:1px solid rgba(168,85,247,0.15); }
+        .stage-fill { height:100%; width:0%; background:linear-gradient(90deg, var(--violet), var(--cyan)); box-shadow:0 0 14px rgba(168,85,247,0.8); border-radius:6px; transition:width 0.6s ease; position:relative; }
+        .stage-row.active .stage-fill::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent); animation:shimmer 1.2s infinite; }
+        @keyframes shimmer { from { transform:translateX(-100%); } to { transform:translateX(100%); } }
 
-        .graph-layout { display: flex; gap: 20px; align-items: stretch; }
-        .graph-panel { flex: 1; min-width: 0; }
-        .graph-panel-wrap { position: relative; }
-        #mynetwork {
-            height: 650px; width: 100%; position: relative; display: block;
-            border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 14px;
-            background: rgba(5, 3, 10, 0.6);
-        }
-        #graph-notice { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--cyan); margin: 4px 0 10px; }
+        .graph-layout { display:flex; gap:20px; align-items:stretch; }
+        .graph-panel { flex:1; min-width:0; }
+        .graph-panel-wrap { position:relative; }
+        #mynetwork { height:650px; width:100%; position:relative; display:block; border:1px solid rgba(168,85,247,0.25); border-radius:14px; background:rgba(5,3,10,0.6); }
+        #graph-notice { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--cyan); margin:4px 0 10px; }
 
-        .canvas-controls {
-            position: absolute; bottom: 18px; right: 18px; z-index: 20;
-            display: flex; flex-direction: column; gap: 8px;
-        }
-        .canvas-controls button {
-            width: 40px; height: 40px; border-radius: 10px; cursor: pointer;
-            font-size: 17px; font-weight: 700; color: var(--cyan);
-            background: rgba(10, 6, 18, 0.85); backdrop-filter: blur(12px);
-            border: 1px solid rgba(34, 211, 238, 0.4);
-            box-shadow: 0 0 14px rgba(34, 211, 238, 0.15); transition: all 0.2s;
-        }
-        .canvas-controls button:hover { background: rgba(34, 211, 238, 0.18); box-shadow: 0 0 18px rgba(34, 211, 238, 0.45); color: #fff; }
+        .canvas-controls { position:absolute; bottom:18px; right:18px; z-index:20; display:flex; flex-direction:column; gap:8px; }
+        .canvas-controls button { width:40px; height:40px; border-radius:10px; cursor:pointer; font-size:17px; font-weight:700; color:var(--cyan); background:rgba(10,6,18,0.85); backdrop-filter:blur(12px); border:1px solid rgba(34,211,238,0.4); box-shadow:0 0 14px rgba(34,211,238,0.15); transition:all 0.2s; }
+        .canvas-controls button:hover { background:rgba(34,211,238,0.18); box-shadow:0 0 18px rgba(34,211,238,0.45); color:#fff; }
 
-        #node-context-box {
-            display: none; position: absolute; z-index: 100; width: 250px;
-            max-height: 300px; overflow-y: auto;
-            background: rgba(14, 8, 26, 0.92); backdrop-filter: blur(20px);
-            border: 1px solid rgba(34, 211, 238, 0.45); border-radius: 14px;
-            padding: 14px 16px; box-shadow: 0 0 30px rgba(34, 211, 238, 0.25);
-            pointer-events: auto;
-        }
-        .ctx-close {
-            position: absolute; top: 8px; right: 10px;
-            background: none; border: none; cursor: pointer;
-            font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700;
-            color: var(--text-dim); padding: 2px 6px; border-radius: 6px;
-        }
-        .ctx-close:hover { color: #f472b6; background: rgba(244, 114, 182, 0.12); }
-        .ctx-title { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #fff; margin-bottom: 2px; word-break: break-word; padding-right: 24px; }
-        .ctx-sub { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 1px; color: var(--cyan); text-transform: uppercase; margin-bottom: 10px; }
-        .ctx-edge {
-            font-size: 11px; color: var(--text); padding: 5px 6px;
-            border-bottom: 1px solid rgba(168,85,247,0.12);
-            cursor: pointer; border-radius: 6px; transition: background 0.15s;
-        }
-        .ctx-edge:hover { background: rgba(34, 211, 238, 0.12); color: #fff; }
-        .ctx-rel { font-family: 'JetBrains Mono', monospace; color: var(--violet-soft); font-size: 10px; }
+        #node-context-box { display:none; position:absolute; z-index:100; width:250px; max-height:300px; overflow-y:auto; background:rgba(14,8,26,0.92); backdrop-filter:blur(20px); border:1px solid rgba(34,211,238,0.45); border-radius:14px; padding:14px 16px; box-shadow:0 0 30px rgba(34,211,238,0.25); pointer-events:auto; }
+        .ctx-close { position:absolute; top:8px; right:10px; background:none; border:none; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; color:var(--text-dim); padding:2px 6px; border-radius:6px; }
+        .ctx-close:hover { color:var(--red); background:rgba(244,114,182,0.12); }
+        .ctx-title { font-family:'JetBrains Mono',monospace; font-size:13px; color:#fff; margin-bottom:2px; word-break:break-word; padding-right:24px; }
+        .ctx-sub { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:1px; color:var(--cyan); text-transform:uppercase; margin-bottom:10px; }
+        .ctx-edge { font-size:11px; color:var(--text); padding:5px 6px; border-bottom:1px solid rgba(168,85,247,0.12); cursor:pointer; border-radius:6px; transition:background 0.15s; }
+        .ctx-edge:hover { background:rgba(34,211,238,0.12); color:#fff; }
+        .ctx-rel { font-family:'JetBrains Mono',monospace; color:var(--violet-soft); font-size:10px; }
 
-        .search-row { display: flex; gap: 10px; margin-bottom: 12px; }
-        .search-row input { flex: 1; }
-        #search-node.not-found { border-color: #f472b6; box-shadow: 0 0 12px rgba(244, 114, 182, 0.4); }
+        .search-row { display:flex; gap:10px; margin-bottom:12px; }
+        .search-row input { flex:1; }
+        #search-node.not-found { border-color:var(--red); box-shadow:0 0 12px rgba(244,114,182,0.4); }
 
-        .sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
-        .sidebar .card { padding: 20px; margin-bottom: 0; }
-        .sidebar-title { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px; color: var(--cyan); margin-bottom: 14px; text-transform: uppercase; }
-        .sidebar-placeholder { color: var(--text-dim); font-size: 13px; line-height: 1.6; }
-        .metric-row { margin-bottom: 14px; border-bottom: 1px solid rgba(168,85,247,0.12); padding-bottom: 10px; }
-        .metric-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); }
-        .metric-value { font-family: 'JetBrains Mono', monospace; font-size: 17px; color: #fff; text-shadow: 0 0 12px rgba(168, 85, 247, 0.5); word-break: break-word; }
-        .metric-value.cyan { color: var(--cyan); text-shadow: 0 0 12px rgba(34, 211, 238, 0.5); }
-        .metric-value.violet { color: var(--violet-soft); }
+        .sidebar { width:300px; flex-shrink:0; display:flex; flex-direction:column; gap:14px; }
+        .sidebar .card { padding:20px; margin-bottom:0; }
+        .sidebar-title { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:2px; color:var(--cyan); margin-bottom:14px; text-transform:uppercase; }
+        .sidebar-placeholder { color:var(--text-dim); font-size:13px; line-height:1.6; }
+        .metric-row { margin-bottom:14px; border-bottom:1px solid rgba(168,85,247,0.12); padding-bottom:10px; }
+        .metric-label { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); }
+        .metric-value { font-family:'JetBrains Mono',monospace; font-size:17px; color:#fff; text-shadow:0 0 12px rgba(168,85,247,0.5); word-break:break-word; }
+        .metric-value.cyan { color:var(--cyan); text-shadow:0 0 12px rgba(34,211,238,0.5); }
+        .metric-value.violet { color:var(--violet-soft); }
 
-        .hubs-list { max-height: 220px; overflow-y: auto; }
-        .hub-row {
-            display: flex; align-items: center; gap: 10px; padding: 7px 8px;
-            border-radius: 8px; cursor: pointer; transition: background 0.15s;
-        }
-        .hub-row:hover { background: rgba(168, 85, 247, 0.12); }
-        .hub-rank { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim); width: 20px; }
-        .hub-name { flex: 1; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .hub-deg { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--cyan); }
+        .hubs-list { max-height:220px; overflow-y:auto; }
+        .hub-row { display:flex; align-items:center; gap:10px; padding:7px 8px; border-radius:8px; cursor:pointer; transition:background 0.15s; }
+        .hub-row:hover { background:rgba(168,85,247,0.12); }
+        .hub-rank { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); width:20px; }
+        .hub-name { flex:1; font-size:12px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .hub-deg { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--cyan); }
 
-        .physics-row { display: flex; flex-direction: column; gap: 10px; }
-        .physics-row select { width: 100%; }
-        #btn-play-stop { width: 100%; margin-top: 0; }
-        #btn-play-stop.stopped {
-            background: rgba(34, 211, 238, 0.10); color: var(--cyan);
-            border: 1px solid rgba(34, 211, 238, 0.45); box-shadow: 0 0 14px rgba(34, 211, 238, 0.25);
-        }
+        .physics-row { display:flex; flex-direction:column; gap:10px; }
+        .physics-row select { width:100%; }
+        #btn-play-stop { width:100%; margin-top:0; }
+        #btn-play-stop.stopped { background:rgba(34,211,238,0.10); color:var(--cyan); border:1px solid rgba(34,211,238,0.45); box-shadow:0 0 14px rgba(34,211,238,0.25); }
 
-        .export-panel { margin-top: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-        .export-panel .mono-label { margin-bottom: 0; }
-        .scope-row { display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); }
-        .btn-export {
-            font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1px;
-            padding: 9px 18px; border-radius: 9px; cursor: pointer;
-            color: var(--violet-soft); background: rgba(168, 85, 247, 0.08);
-            border: 1px solid var(--glass-border); transition: all 0.2s;
-        }
-        .btn-export:hover { background: rgba(168, 85, 247, 0.22); box-shadow: 0 0 16px rgba(168, 85, 247, 0.4); color: #fff; }
-        .btn-export.cyan { color: var(--cyan); border-color: rgba(34, 211, 238, 0.35); background: rgba(34, 211, 238, 0.07); }
-        .btn-export.cyan:hover { box-shadow: 0 0 16px rgba(34, 211, 238, 0.4); }
-
-        @media (max-width: 900px) {
-            .graph-layout { flex-direction: column; }
-            .sidebar { width: 100%; }
-            .hud-header { flex-wrap: wrap; height: auto; padding: 10px 16px; }
-        }
+        .export-panel { margin-top:16px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+        .btn-export { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; padding:9px 18px; border-radius:9px; cursor:pointer; color:var(--violet-soft); background:rgba(168,85,247,0.08); border:1px solid var(--glass-border); transition:all 0.2s; }
+        .btn-export:hover { background:rgba(168,85,247,0.22); box-shadow:0 0 16px rgba(168,85,247,0.4); color:#fff; }
+        .btn-export.cyan { color:var(--cyan); border-color:rgba(34,211,238,0.35); background:rgba(34,211,238,0.07); }
+        .btn-export.cyan:hover { box-shadow:0 0 16px rgba(34,211,238,0.4); }
+        @media (max-width:900px) { .graph-layout { flex-direction:column; } .sidebar { width:100%; } .hud-header { flex-wrap:wrap; height:auto; padding:10px 16px; } }
     </style>
 </head>
-<body>
-    <div class="hud-bg"></div>
-
-    <header class="hud-header">
-        <div class="brand">
-            <div class="glyph">🕷</div>
-            <h1>ARACHNE <span>//</span> SCHOLAR</h1>
-        </div>
-        <div class="status-pill"><span class="dot"></span><span id="hdr-status">LINK...</span></div>
-    </header>
-
-    <div class="container" id="main-container">
-
-        <!-- ============ STEP 1: HOME MULTI-PROGETTO + SETTINGS ============ -->
-        <div id="step-1" class="wizard-step active">
-            <div class="card">
-                <span class="mono-label">// project_grid</span>
-                <h2>Console dei <em>Progetti</em></h2>
-                <p class="sub" id="gpu-status">Scansione hardware in corso...</p>
-
-                <div class="projects-grid" id="projects-grid">
-                    <div class="project-card new-project" id="card-new-project" onclick="toggleUploadPanel()">
-                        <div class="plus">+</div>
-                        <div class="np-label">NUOVO PROGETTO</div>
-                    </div>
-                </div>
-
-                <div id="upload-panel">
-                    <span class="mono-label" style="margin-top: 8px;">// ingestione_corpus</span>
-                    <p class="sub">Carica i paper accademici (PDF). Il workspace precedente verrà azzerato automaticamente.</p>
-                    <input type="file" id="file-input" multiple accept=".pdf">
-                    <div style="display: flex; gap: 12px; align-items: center;">
-                        <select id="lang-select" class="btn">
-                            <option value="en">EN — Inglese</option>
-                            <option value="it">IT — Italiano</option>
-                            <option value="es">ES — Spagnolo</option>
-                        </select>
-                        <button class="btn" onclick="uploadFiles()">Carica e Inizia ⚡</button>
-                    </div>
-                </div>
+<body><div class="hud-bg"></div>
+<header class="hud-header">
+    <div class="brand"><div class="glyph">🕷</div><h1>ARACHNE <span>//</span> SCHOLAR</h1></div>
+    <div class="status-pill"><span class="dot"></span><span id="hdr-status">LINK...</span></div>
+</header>
+<div class="container" id="main-container">
+    <div id="step-1" class="wizard-step active">
+        <div class="card">
+            <span class="mono-label">// project_grid</span>
+            <h2>Console dei <em>Progetti</em></h2><p class="sub" id="gpu-status">Scansione hardware in corso...</p>
+            <div class="projects-grid" id="projects-grid">
+                <div class="project-card new-project" id="card-new-project" onclick="toggleUploadPanel()"><div class="plus">+</div><div class="np-label">NUOVO PROGETTO</div></div>
             </div>
-
-            <!-- SETTINGS -->
-            <div class="card" id="settings-block">
-                <span class="mono-label">// impostazioni_di_sistema</span>
-                <div class="settings-grid">
-                    <div class="setting-item">
-                        <span class="mono-label">Modello NLP</span>
-                        <select id="nlp-model" class="btn" style="width: 100%;" onchange="saveSettings()">
-                            <option value="auto">Auto (lg, veloce)</option>
-                            <option value="trf">Transformer trf (qualità max, GPU)</option>
-                        </select>
-                    </div>
-                    <div class="setting-item">
-                        <span class="mono-label">Accelerazione</span>
-                        <div class="toggle-row">
-                            <div class="toggle" id="force-cpu-toggle" onclick="toggleForceCpu()"></div>
-                            <span class="toggle-label" id="force-cpu-label">GPU auto (se disponibile)</span>
-                            <input type="checkbox" id="force-cpu" style="display: none;">
-                        </div>
-                    </div>
+            <div id="upload-panel">
+                <span class="mono-label" style="margin-top:8px;">// ingestione_corpus</span>
+                <p class="sub">Seleziona i PDF accademici. Il workspace precedente verrà azzerato.</p>
+                <input type="file" id="file-input" multiple accept=".pdf" onchange="previewFiles()">
+                <div class="file-preview" id="file-preview" style="display:none;"></div>
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <select id="lang-select" class="btn"><option value="en">EN — Inglese</option><option value="it">IT — Italiano</option><option value="es">ES — Spagnolo</option></select>
+                    <button class="btn" id="btn-upload-start" onclick="uploadFiles()" style="display:none;">Avvia Estrazione ⚡</button>
                 </div>
-                <span id="settings-saved">✓ SALVATO</span>
             </div>
         </div>
-
-        <!-- ============ STEP 2: PIPELINE + PROGRESS ============ -->
-        <div id="step-2" class="wizard-step">
-            <div class="card">
-                <span class="mono-label">// pipeline_runtime</span>
-                <h2>Estrazione in <em>corso</em></h2>
-                <p class="sub">SVO parsing e metriche SNA. Non chiudere questa finestra.</p>
-
-                <div class="progress-stack">
-                    <div class="stage-row" id="stage-1">
-                        <span class="stage-tag">Ingestione PDF</span>
-                        <div class="stage-track"><div class="stage-fill" id="fill-1"></div></div>
-                    </div>
-                    <div class="stage-row" id="stage-2">
-                        <span class="stage-tag">Estrazione SVO</span>
-                        <div class="stage-track"><div class="stage-fill" id="fill-2"></div></div>
-                    </div>
-                    <div class="stage-row" id="stage-3-sna">
-                        <span class="stage-tag">Metriche SNA</span>
-                        <div class="stage-track"><div class="stage-fill" id="fill-3"></div></div>
-                    </div>
-                </div>
-
-                <div class="log-window" id="log-console">Inizializzazione motore...</div>
-                <button class="btn" id="btn-results" style="display: none; width: 100%;" onclick="goToGraph()">Visualizza la Dashboard →</button>
-            </div>
-        </div>
-
-        <!-- ============ STEP 3: GRAFO ============ -->
-        <div id="step-3" class="wizard-step">
-            <div class="graph-layout">
-                <div class="card graph-panel">
-                    <span class="mono-label">// dashboard_topologica</span>
-                    <div class="search-row">
-                        <input type="text" id="search-node" placeholder="cerca concetto nel grafo… (invio per centrare)" onkeydown="if(event.key==='Enter') searchNode()">
-                        <button class="btn small ghost" style="margin-top:0;" onclick="searchNode()">⌕</button>
-                    </div>
-                    <p id="graph-notice" style="display: none;"></p>
-                    <div class="graph-panel-wrap" id="graph-panel-wrap">
-                        <div id="mynetwork"></div>
-                        <div class="canvas-controls">
-                            <button id="btn-zoom-in" title="Zoom in" onclick="zoomCanvas(1.35)">+</button>
-                            <button id="btn-zoom-out" title="Zoom out" onclick="zoomCanvas(0.74)">−</button>
-                            <button id="btn-fullscreen" title="Schermo intero" onclick="toggleFullscreen()">⛶</button>
-                        </div>
-                        <div id="node-context-box"></div>
-                    </div>
-                    <div class="export-panel" id="export-panel">
-                        <span class="mono-label">// esportazione</span>
-                        <div class="scope-row">
-                            <input type="checkbox" id="export-scope" checked>
-                            <label for="export-scope">Solo nodi visibili (top 400)</label>
-                        </div>
-                        <button class="btn-export" onclick="downloadExport('gexf')">⬇ GEXF</button>
-                        <button class="btn-export cyan" onclick="downloadExport('graphml')">⬇ GRAPHML</button>
-                    </div>
-                </div>
-                <div class="sidebar">
-                    <div class="card">
-                        <div class="sidebar-title">// Fisica</div>
-                        <div class="physics-row">
-                            <select id="physics-solver" class="btn">
-                                <option value="forceAtlas2Based">forceAtlas2Based</option>
-                                <option value="barnesHut">barnesHut</option>
-                            </select>
-                            <button class="btn ghost" id="btn-play-stop" onclick="toggleAlgorithm()">⏸ Stop Algorithm</button>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="sidebar-title">// Top Hubs</div>
-                        <div class="hubs-list" id="hubs-list">
-                            <p class="sidebar-placeholder">In attesa del grafo…</p>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="sidebar-title">// Plancia di Comando</div>
-                        <div id="node-details">
-                            <p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p>
-                        </div>
-                    </div>
-                    <button class="btn ghost" style="width: 100%;" onclick="location.reload()">← Torna alla Home</button>
-                </div>
-            </div>
+        <div class="card" id="settings-block"><span class="mono-label">// impostazioni_di_sistema</span>
+            <div class="settings-grid">
+                <div class="setting-item"><span class="mono-label">Modello NLP</span><select id="nlp-model" class="btn" style="width:100%;" onchange="saveSettings()"><option value="auto">Auto (lg, veloce)</option><option value="trf">Transformer trf (qualità max, GPU)</option></select></div>
+                <div class="setting-item"><span class="mono-label">Accelerazione</span><div class="toggle-row"><div class="toggle" id="force-cpu-toggle" onclick="toggleForceCpu()"></div><span class="toggle-label" id="force-cpu-label">GPU auto (se disponibile)</span><input type="checkbox" id="force-cpu" style="display:none;"></div></div>
+            </div><span id="settings-saved">✓ SALVATO</span>
         </div>
     </div>
+    <div id="step-2" class="wizard-step"><div class="card"><span class="mono-label">// pipeline_runtime</span><h2>Estrazione in <em>corso</em></h2><p class="sub">SVO parsing e metriche SNA. Non chiudere questa finestra.</p>
+        <div class="progress-stack">
+            <div class="stage-row" id="stage-1"><span class="stage-tag">Ingestione PDF</span><div class="stage-track"><div class="stage-fill" id="fill-1"></div></div></div>
+            <div class="stage-row" id="stage-2"><span class="stage-tag">Estrazione SVO</span><div class="stage-track"><div class="stage-fill" id="fill-2"></div></div></div>
+            <div class="stage-row" id="stage-3-sna"><span class="stage-tag">Metriche SNA</span><div class="stage-track"><div class="stage-fill" id="fill-3"></div></div></div>
+        </div>
+        <div class="log-window" id="log-console">Inizializzazione motore...</div>
+        <button class="btn" id="btn-results" style="display:none; width:100%;" onclick="goToGraph()">Visualizza la Dashboard →</button>
+    </div></div>
+    <div id="step-3" class="wizard-step"><div class="graph-layout">
+        <div class="card graph-panel"><span class="mono-label">// dashboard_topologica</span>
+            <div class="search-row"><input type="text" id="search-node" placeholder="cerca concetto nel grafo… (invio per centrare)" onkeydown="if(event.key==='Enter')searchNode()"><button class="btn small ghost" style="margin-top:0;" onclick="searchNode()">⌕</button></div>
+            <p id="graph-notice" style="display:none;"></p><div class="graph-panel-wrap" id="graph-panel-wrap"><div id="mynetwork"></div>
+                <div class="canvas-controls"><button id="btn-zoom-in" onclick="zoomCanvas(1.35)">+</button><button id="btn-zoom-out" onclick="zoomCanvas(0.74)">−</button><button id="btn-fullscreen" onclick="toggleFullscreen()">⛶</button></div>
+                <div id="node-context-box"></div></div>
+            <div class="export-panel"><span class="mono-label">// esportazione</span><div class="scope-row"><input type="checkbox" id="export-scope" checked><label for="export-scope">Solo nodi visibili (top 400)</label></div><button class="btn-export" onclick="downloadExport('gexf')">⬇ GEXF</button><button class="btn-export cyan" onclick="downloadExport('graphml')">⬇ GRAPHML</button></div>
+        </div>
+        <div class="sidebar">
+            <div class="card"><div class="sidebar-title">// Fisica</div><div class="physics-row"><select id="physics-solver" class="btn"><option value="forceatlas2">ForceAtlas2 (WebGL)</option></select><button class="btn ghost" id="btn-play-stop" onclick="toggleAlgorithm()">⏸ Stop Algorithm</button></div></div>
+            <div class="card"><div class="sidebar-title">// Top Hubs</div><div class="hubs-list" id="hubs-list"><p class="sidebar-placeholder">In attesa del grafo…</p></div></div>
+            <div class="card"><div class="sidebar-title">// Plancia di Comando</div><div id="node-details"><p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p></div></div>
+            <button class="btn ghost" style="width:100%;" onclick="location.reload()">← Torna alla Home</button>
+        </div>
+    </div></div>
+</div>
+<script>
+    const { UndirectedGraph } = window.graphology;
+    const { ForceAtlas2Layout } = window.graphologyForceAtlas2;
+    let sigma = null, graph = null, layout = null, nodeLabelMap = {}, currentEdges = [], currentFiltered = [], algorithmPlaying = true;
 
-    <script>
-        let network = null;
-        let algorithmPlaying = true;
-        let currentNodes = null;
-        let currentEdges = [];
-        let nodeLabelMap = {};
+    fetch('/api/system-check').then(r=>r.json()).then(data=>{
+        const pill=document.getElementById('hdr-status'); pill.classList.remove('gpu-on','gpu-idle');
+        if(data.gpu_available){
+            const name=data.gpu_name||'NVIDIA GPU';
+            if(data.force_cpu){ document.getElementById('gpu-status').innerHTML=`⚠️ <strong style="color:var(--amber);">GPU ${name} in pausa</strong> — forzatura CPU attiva nelle impostazioni.`; pill.textContent=`GPU-IDLE [CPU FORZATA]`+(data.graph_exists?' · GRAPH READY':''); pill.classList.add('gpu-idle'); }
+            else { document.getElementById('gpu-status').innerHTML=`🚀 <strong>GPU attiva: ${name}</strong> — pipeline accelerata hardware.`; pill.textContent=`GPU-ACTIVE [${name}]`+(data.graph_exists?' · GRAPH READY':''); pill.classList.add('gpu-on'); }
+        } else { document.getElementById('gpu-status').innerHTML='💻 <strong>Modalità CPU</strong> — nessuna GPU rilevata, esecuzione standard.'; pill.textContent='CPU-LINK'+(data.graph_exists?' · GRAPH READY':' · IDLE'); }
+    }).catch(()=>{document.getElementById('hdr-status').textContent='OFFLINE';});
+    async function loadSettings(){ try{ const s=await(await fetch('/api/settings')).json(); document.getElementById('nlp-model').value=s.nlp_model||'auto'; const fc=!!s.force_cpu; document.getElementById('force-cpu').checked=fc; document.getElementById('force-cpu-toggle').classList.toggle('on',fc); document.getElementById('force-cpu-label').textContent=fc?'CPU FORZATA':'GPU auto (se disponibile)'; }catch(e){} }
+    async function saveSettings(){ try{ await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nlp_model:document.getElementById('nlp-model').value,force_cpu:document.getElementById('force-cpu').checked})}); const dot=document.getElementById('settings-saved'); dot.style.opacity=1; setTimeout(()=>dot.style.opacity=0,1200); }catch(e){} }
+    function toggleForceCpu(){ const cb=document.getElementById('force-cpu'); cb.checked=!cb.checked; document.getElementById('force-cpu-toggle').classList.toggle('on',cb.checked); document.getElementById('force-cpu-label').textContent=cb.checked?'CPU FORZATA':'GPU auto (se disponibile)'; saveSettings(); }
+    loadSettings();
 
-        // ================= SYSTEM CHECK / SETTINGS / PROGETTI =================
-        fetch('/api/system-check').then(r => r.json()).then(data => {
-            const pill = document.getElementById('hdr-status');
-            pill.classList.remove('gpu-on', 'gpu-idle');
-            if (data.gpu_available) {
-                const name = data.gpu_name || 'NVIDIA GPU';
-                if (data.force_cpu) {
-                    // GPU presente ma pipeline forzata a CPU via settings
-                    document.getElementById('gpu-status').innerHTML =
-                        `⚠️ <strong style="color:#fbbf24;">GPU ${name} in pausa</strong> — forzatura CPU attiva nelle impostazioni.`;
-                    pill.textContent = `GPU-IDLE [CPU FORZATA]` + (data.graph_exists ? ' · GRAPH READY' : '');
-                    pill.classList.add('gpu-idle');
-                } else {
-                    document.getElementById('gpu-status').innerHTML =
-                        `🚀 <strong>GPU attiva: ${name}</strong> — pipeline accelerata hardware.`;
-                    pill.textContent = `GPU-ACTIVE [${name}]` + (data.graph_exists ? ' · GRAPH READY' : '');
-                    pill.classList.add('gpu-on');
-                }
-            } else {
-                document.getElementById('gpu-status').innerHTML =
-                    '💻 <strong>Modalità CPU</strong> — nessuna GPU rilevata, esecuzione standard.';
-                pill.textContent = 'CPU-LINK' + (data.graph_exists ? ' · GRAPH READY' : ' · IDLE');
-            }
-        }).catch(() => { document.getElementById('hdr-status').textContent = 'OFFLINE'; });
+    async function loadProjects(){
+        try{ const res=await fetch('/api/runs'); const data=await res.json(); const grid=document.getElementById('projects-grid'); const nc=document.getElementById('card-new-project');
+            (data.runs||[]).forEach(run=>{ const card=document.createElement('div'); card.className='project-card'; const dateStr=(run.ts||'').slice(0,16).replace('T',' '); const statusMap={done:'Completato',running:'In elaborazione',error:'Errore',queued:'In coda'}; const st=statusMap[run.status]||run.status;
+            card.innerHTML=`<div><span class="p-name">${run.nome_progetto||'Progetto #'+run.id}</span><button class="p-rename" title="Rinomina" onclick="startRename(${run.id},this)">✎</button></div><div class="p-date">RUN #${run.id} · ${dateStr} UTC</div><span class="p-lang">${run.lang||'en'}</span><span class="p-status status-${run.status}">[${st}]</span><div class="p-stats">${(run.nodes||0).toLocaleString('it-IT')} nodi<br>${(run.edges||0).toLocaleString('it-IT')} archi</div><button class="btn small p-open" onclick="openProject(${run.id})">Apri →</button><button class="p-delete" title="Elimina" onclick="deleteProject(${run.id})">🗑</button>`;
+            grid.insertBefore(card,nc); });
+        }catch(e){console.error('loadProjects errore:',e);}
+    }
+    loadProjects();
+    function startRename(runId,btn){ const span=btn.parentElement.querySelector('.p-name'); const current=span.textContent; const input=document.createElement('input'); input.className='rename-input'; input.value=current; span.style.display='none'; btn.style.display='none'; btn.parentElement.insertBefore(input,btn); input.focus(); input.select(); const finish=async(save)=>{ const val=input.value.trim(); if(save&&val&&val!==current){ try{ await fetch(`/api/runs/${runId}/rename`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:val})}); span.textContent=val; }catch(e){} } span.style.display=''; btn.style.display=''; input.remove(); }; input.onkeydown=(ev)=>{ if(ev.key==='Enter') finish(true); if(ev.key==='Escape') finish(false); }; input.onblur=()=>finish(true); }
+    async function deleteProject(runId){ if(!confirm(`Eliminare definitivamente il progetto #${runId}? Questa azione non può essere annullata.`)) return; try{ const res=await fetch(`/api/projects/${runId}`,{method:'DELETE'}); if(!res.ok) throw new Error(res.status); location.reload(); }catch(e){ alert('Errore durante l\'eliminazione.'); } }
+    function previewFiles(){ const fi=document.getElementById('file-input'); const preview=document.getElementById('file-preview'); const btn=document.getElementById('btn-upload-start'); if(!fi.files.length){ preview.style.display='none'; btn.style.display='none'; return; } let html=''; let total=0; for(const f of fi.files){ const kb=f.size/1024; const sz=kb>=1024?(kb/1024).toFixed(1)+' MB':kb.toFixed(0)+' KB'; html+=`<div class="fp-item"><span>${f.name}</span><span class="fp-size">${sz}</span></div>`; total+=f.size; } html+=`<div class="fp-item" style="border-top:1px solid rgba(168,85,247,0.3);"><strong>TOTALE</strong><span class="fp-size">${(total/1024/1024).toFixed(2)} MB</span></div>`; preview.innerHTML=html; preview.style.display='block'; btn.style.display='inline-block'; }
+    function toggleUploadPanel(){ document.getElementById('upload-panel').classList.toggle('open'); }
+    async function openProject(runId){ try{ const res=await fetch(`/api/runs/${runId}/activate`,{method:'POST'}); if(!res.ok) throw new Error('HTTP '+res.status); goToGraph(); }catch(e){ alert('Impossibile aprire il progetto #'+runId); } }
+    async function uploadFiles(){ const fi=document.getElementById('file-input'); if(fi.files.length===0){ alert('Seleziona almeno un file PDF!'); return; } const fd=new FormData(); for(let i=0;i<fi.files.length;i++) fd.append('files',fi.files[i]); fd.append('lang',document.getElementById('lang-select').value); document.getElementById('step-1').classList.remove('active'); document.getElementById('step-2').classList.add('active'); await fetch('/api/upload',{method:'POST',body:fd}); await fetch('/api/run',{method:'POST'}); pollLogs(); }
+    function setStage(num,state,pct){ const row=document.getElementById(num===3?'stage-3-sna':'stage-'+num); const fill=document.getElementById('fill-'+num); row.classList.remove('active','done'); if(state)row.classList.add(state); if(pct!==undefined)fill.style.width=pct+'%'; }
+    function updateProgress(logs){ const piece=logs.match(/\[(\d+)\/(\d+)\]/); const intra=piece?Math.round(100*parseInt(piece[1])/parseInt(piece[2])):0; if(logs.includes('ESECUZIONE: Ingestione PDF')&&!logs.includes('ESECUZIONE: Estrazione SVO'))setStage(1,'active',50); if(logs.includes('ESECUZIONE: Estrazione SVO')){setStage(1,'done',100);setStage(2,'active',Math.max(5,intra));} if(logs.includes('ESECUZIONE: Calcolo Metriche SNA')){setStage(2,'done',100);setStage(3,'active',60);} if(logs.includes('PIPELINE COMPLETATA')){setStage(1,'done',100);setStage(2,'done',100);setStage(3,'done',100);} }
+    function pollLogs(){ const lc=document.getElementById('log-console'); const int=setInterval(async()=>{ try{ const res=await fetch('/api/logs'); const data=await res.json(); lc.textContent=data.logs; lc.scrollTop=lc.scrollHeight; updateProgress(data.logs); if(data.logs.includes('PIPELINE COMPLETATA')){ clearInterval(int); document.getElementById('btn-results').style.display='block'; loadProjects(); } }catch(e){} },1000); }
+    function zoomCanvas(f){ if(!sigma)return; const c=sigma.getCamera(); sigma.getCamera().animate({x:c.x,y:c.y,ratio:c.ratio*f},{duration:220}); }
+    function toggleFullscreen(){ const w=document.getElementById('graph-panel-wrap'); if(!document.fullscreenElement) w.requestFullscreen(); else document.exitFullscreen(); }
+    function toggleAlgorithm(){ if(!layout)return; algorithmPlaying=!algorithmPlaying; const btn=document.getElementById('btn-play-stop'); if(algorithmPlaying){ layout.start(); btn.textContent='⏸ Stop Algorithm'; btn.classList.remove('stopped'); } else { layout.stop(); btn.textContent='▶ Play Algorithm'; btn.classList.add('stopped'); } }
+    function buildHubsList(filtered){ const hubs=[...filtered].sort((a,b)=>(b.metrics?.degree??0)-(a.metrics?.degree??0)).slice(0,10); document.getElementById('hubs-list').innerHTML=hubs.map((n,i)=>`<div class="hub-row" onclick="focusOnNode('${n.id}')"><span class="hub-rank">${String(i+1).padStart(2,'0')}</span><span class="hub-name">${n.label}</span><span class="hub-deg">${n.metrics?.degree??0}</span></div>`).join('')||'<p class="sidebar-placeholder">Nessun hub rilevato.</p>'; }
+    function showNodeInfo(nodeId,domPos){ const nd=document.getElementById('node-details'); if(!graph||!graph.hasNode(nodeId)) return; const attrs=graph.getNodeAttributes(nodeId); const m=attrs.rawMetrics||{}; nd.innerHTML=`<div class="metric-row"><div class="metric-label">Nome</div><div class="metric-value violet">${attrs.label||nodeId}</div></div><div class="metric-row"><div class="metric-label">Tipo</div><div class="metric-value">${attrs.rawType}</div></div><div class="metric-row"><div class="metric-label">Betweenness</div><div class="metric-value cyan">${(m.betweenness??0).toFixed(4)}</div></div><div class="metric-row"><div class="metric-label">Constraint</div><div class="metric-value cyan">${(m.constraint??1).toFixed(4)}</div></div><div class="metric-row"><div class="metric-label">Community</div><div class="metric-value">${m.community??'N/A'}</div></div><div class="metric-row"><div class="metric-label">Degree</div><div class="metric-value">${m.degree??0}</div></div>`;
+        const nbs=[]; currentEdges.forEach(e=>{ if(e.source===nodeId) nbs.push({a:'→',r:e.relation,id:e.target,n:nodeLabelMap[e.target]||e.target}); else if(e.target===nodeId) nbs.push({a:'←',r:e.relation,id:e.source,n:nodeLabelMap[e.source]||e.source}); });
+        const ctx=document.getElementById('node-context-box'); const rows=nbs.slice(0,14).map(n=>`<div class="ctx-edge" onclick="focusOnNode('${n.id}')"><span class="ctx-rel">${n.a} ${n.r}</span> ${n.n}</div>`).join(''); ctx.innerHTML=`<button class="ctx-close" onclick="closeCtxBox()">[X]</button><div class="ctx-title">${attrs.label||nodeId}</div><div class="ctx-sub">${nbs.length} connessioni dirette</div>${rows||'<div class="ctx-edge" style="cursor:default">nessun vicino</div>'}`;
+        if(domPos){ const wrap=document.getElementById('graph-panel-wrap'); ctx.style.left=Math.min(Math.max(domPos.x+18,8),wrap.clientWidth-262)+'px'; ctx.style.top=Math.min(Math.max(domPos.y-12,8),wrap.clientHeight-200)+'px'; ctx.style.display='block'; } }
+    function closeCtxBox(){ document.getElementById('node-context-box').style.display='none'; }
+    function focusOnNode(nid){ if(!graph||!graph.hasNode(nid))return; const x=graph.getNodeAttribute(nid,'x'), y=graph.getNodeAttribute(nid,'y'); sigma.getCamera().animate({x,y,ratio:1.15},{duration:500}); showNodeInfo(nid,sigma.viewportToFramedGraph(sigma.framedGraphToViewport({x:0,y:0}))||null); }
+    function searchNode(){ const inp=document.getElementById('search-node'); const q=inp.value.trim().toLowerCase(); if(!q||!graph)return; let match=null; graph.forEachNode((nid,a)=>{ if(!match&&((a.label||'').toLowerCase().includes(q)||nid.includes(q))) match=nid; }); if(!match){ inp.classList.add('not-found'); setTimeout(()=>inp.classList.remove('not-found'),900); return; } focusOnNode(match); }
+    function downloadExport(fmt){ window.location.href=`/api/export/${fmt}?scope=`+(document.getElementById('export-scope').checked?'hub':'all'); }
 
-        async function loadSettings() {
-            try {
-                const s = await (await fetch('/api/settings')).json();
-                document.getElementById('nlp-model').value = s.nlp_model || 'auto';
-                const fc = !!s.force_cpu;
-                document.getElementById('force-cpu').checked = fc;
-                document.getElementById('force-cpu-toggle').classList.toggle('on', fc);
-                document.getElementById('force-cpu-label').textContent = fc ? 'CPU FORZATA' : 'GPU auto (se disponibile)';
-            } catch (e) { console.error('loadSettings:', e); }
-        }
-        async function saveSettings() {
-            try {
-                await fetch('/api/settings', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        nlp_model: document.getElementById('nlp-model').value,
-                        force_cpu: document.getElementById('force-cpu').checked
-                    })
-                });
-                const dot = document.getElementById('settings-saved');
-                dot.style.opacity = 1; setTimeout(() => dot.style.opacity = 0, 1200);
-            } catch (e) { console.error('saveSettings:', e); }
-        }
-        function toggleForceCpu() {
-            const cb = document.getElementById('force-cpu');
-            cb.checked = !cb.checked;
-            document.getElementById('force-cpu-toggle').classList.toggle('on', cb.checked);
-            document.getElementById('force-cpu-label').textContent = cb.checked ? 'CPU FORZATA' : 'GPU auto (se disponibile)';
-            saveSettings();
-        }
-        loadSettings();
-
-        async function loadProjects() {
-            try {
-                const res = await fetch('/api/runs');
-                const data = await res.json();
-                const grid = document.getElementById('projects-grid');
-                const newCard = document.getElementById('card-new-project');
-                (data.runs || []).forEach(run => {
-                    if (!run.has_graph || run.status !== 'done') return;
-                    const card = document.createElement('div');
-                    card.className = 'project-card';
-                    const dateStr = (run.ts || '').slice(0, 16).replace('T', ' ');
-                    card.innerHTML = `
-                        <div><span class="p-name">${run.nome_progetto || 'Progetto #' + run.id}</span><button class="p-rename" title="Rinomina" onclick="startRename(${run.id}, this)">✎</button></div>
-                        <div class="p-date">RUN #${run.id} · ${dateStr} UTC</div>
-                        <span class="p-lang">${run.lang || 'en'}</span>
-                        <div class="p-stats">${(run.nodes || 0).toLocaleString('it-IT')} nodi<br>${(run.edges || 0).toLocaleString('it-IT')} archi</div>
-                        <button class="btn small p-open" onclick="openProject(${run.id})">Apri →</button>`;
-                    grid.insertBefore(card, newCard);
-                });
-            } catch (e) { console.error('loadProjects errore:', e); }
-        }
-        loadProjects();
-
-        function startRename(runId, btn) {
-            const span = btn.parentElement.querySelector('.p-name');
-            const current = span.textContent;
-            const input = document.createElement('input');
-            input.className = 'rename-input';
-            input.value = current;
-            span.style.display = 'none';
-            btn.style.display = 'none';
-            btn.parentElement.insertBefore(input, btn);
-            input.focus();
-            input.select();
-            const finish = async (save) => {
-                const val = input.value.trim();
-                if (save && val && val !== current) {
-                    try {
-                        await fetch(`/api/runs/${runId}/rename`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name: val })
-                        });
-                        span.textContent = val;
-                    } catch (e) { console.error('rename:', e); }
-                }
-                span.style.display = '';
-                btn.style.display = '';
-                input.remove();
-            };
-            input.onkeydown = (ev) => {
-                if (ev.key === 'Enter') finish(true);
-                if (ev.key === 'Escape') finish(false);
-            };
-            input.onblur = () => finish(true);
-        }
-
-        function toggleUploadPanel() {
-            document.getElementById('upload-panel').classList.toggle('open');
-        }
-
-        async function openProject(runId) {
-            try {
-                const res = await fetch(`/api/runs/${runId}/activate`, { method: 'POST' });
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                goToGraph();
-            } catch (e) {
-                console.error('openProject fallita:', e);
-                alert('Impossibile aprire il progetto #' + runId);
-            }
-        }
-
-        // ================= UPLOAD + RUN =================
-        async function uploadFiles() {
-            const fileInput = document.getElementById('file-input');
-            if (fileInput.files.length === 0) { alert('Seleziona almeno un file PDF!'); return; }
-            const formData = new FormData();
-            for (let i = 0; i < fileInput.files.length; i++) {
-                formData.append('files', fileInput.files[i]);
-            }
-            formData.append('lang', document.getElementById('lang-select').value);
-            document.getElementById('step-1').classList.remove('active');
-            document.getElementById('step-2').classList.add('active');
-            await fetch('/api/upload', { method: 'POST', body: formData });
-            await fetch('/api/run', { method: 'POST' });
-            pollLogs();
-        }
-
-        // ================= PROGRESS ENGINE =================
-        function setStage(num, state, pct) {
-            const row = document.getElementById(num === 3 ? 'stage-3-sna' : 'stage-' + num);
-            const fill = document.getElementById('fill-' + num);
-            row.classList.remove('active', 'done');
-            if (state) row.classList.add(state);
-            if (pct !== undefined) fill.style.width = pct + '%';
-        }
-        function updateProgress(logs) {
-            const piece = logs.match(/\[(\d+)\/(\d+)\]/);
-            const intra = piece ? Math.round(100 * parseInt(piece[1]) / parseInt(piece[2])) : 0;
-            if (logs.includes('ESECUZIONE: Ingestione PDF') && !logs.includes('ESECUZIONE: Estrazione SVO')) setStage(1, 'active', 50);
-            if (logs.includes('ESECUZIONE: Estrazione SVO')) { setStage(1, 'done', 100); setStage(2, 'active', Math.max(5, intra)); }
-            if (logs.includes('ESECUZIONE: Calcolo Metriche SNA')) { setStage(2, 'done', 100); setStage(3, 'active', 60); }
-            if (logs.includes('PIPELINE COMPLETATA')) { setStage(1, 'done', 100); setStage(2, 'done', 100); setStage(3, 'done', 100); }
-        }
-        function pollLogs() {
-            const logConsole = document.getElementById('log-console');
-            const interval = setInterval(async () => {
-                try {
-                    const res = await fetch('/api/logs');
-                    const data = await res.json();
-                    logConsole.textContent = data.logs;
-                    logConsole.scrollTop = logConsole.scrollHeight;
-                    updateProgress(data.logs);
-                    if (data.logs.includes('PIPELINE COMPLETATA')) {
-                        clearInterval(interval);
-                        document.getElementById('btn-results').style.display = 'block';
-                        loadProjects();
-                    }
-                } catch (e) { console.error('pollLogs errore:', e); }
-            }, 1000);
-        }
-
-        // ================= CANVAS CONTROLS =================
-        function zoomCanvas(factor) {
-            if (!network) return;
-            const s = network.getScale() * factor;
-            network.moveTo({ scale: s, animation: { duration: 220, easingFunction: 'easeInOutQuad' } });
-        }
-        function toggleFullscreen() {
-            const wrap = document.getElementById('graph-panel-wrap');
-            if (!document.fullscreenElement) {
-                if (wrap.requestFullscreen) wrap.requestFullscreen();
-            } else {
-                document.exitFullscreen();
-            }
-        }
-
-        // ================= FISICA: PLAY / STOP =================
-        function toggleAlgorithm() {
-            if (!network) return;
-            algorithmPlaying = !algorithmPlaying;
-            network.setOptions({ physics: { enabled: algorithmPlaying } });
-            const btn = document.getElementById('btn-play-stop');
-            if (algorithmPlaying) {
-                btn.textContent = '⏸ Stop Algorithm';
-                btn.classList.remove('stopped');
-            } else {
-                btn.textContent = '▶ Play Algorithm';
-                btn.classList.add('stopped');
-            }
-        }
-        // ================= FISICA: PLAY / STOP + SOLVER CONFIGS =================
-        // Parametri aggressivi anti-ammassamento per grafi densi: il solver
-        // selezionato nel pannello Fisica applica dinamicamente il suo blocco.
-        const PHYSICS_CONFIGS = {
-            barnesHut: { solver: 'barnesHut',
-                barnesHut: { gravitationalConstant: -8000, centralGravity: 0.15,
-                             springLength: 120, springConstant: 0.04, avoidOverlap: 0.5 } },
-            forceAtlas2Based: { solver: 'forceAtlas2Based',
-                forceAtlas2Based: { gravitationalConstant: -150, centralGravity: 0.01,
-                                    springLength: 100, springConstant: 0.08, avoidOverlap: 0.5 } }
-        };
-        function physicsOptions() {
-            const s = document.getElementById('physics-solver').value;
-            return Object.assign(
-                { enabled: true, stabilization: { iterations: 250, updateInterval: 25 } },
-                PHYSICS_CONFIGS[s]);
-        }
-        function bindPhysicsControls() {
-            document.getElementById('physics-solver').onchange = function () {
-                if (!network) return;
-                if (!algorithmPlaying) toggleAlgorithm();
-                network.setOptions({ physics: physicsOptions() });
-                network.stabilize(200);
-                console.log('[Arachne] solver cambiato:', this.value, PHYSICS_CONFIGS[this.value]);
-            };
-        }
-
-        // ================= NODE INFO: SIDEBAR + CONTEXT BOX =================
-        function showNodeInfo(nodeId, domPos) {
-            const node = currentNodes.get(nodeId);
-            if (!node) return;
-            const m = node.rawMetrics || {};
-            document.getElementById('node-details').innerHTML = `
-                <div class="metric-row"><div class="metric-label">Nome</div><div class="metric-value violet">${node.label || node.id}</div></div>
-                <div class="metric-row"><div class="metric-label">Tipo</div><div class="metric-value">${node.rawType}</div></div>
-                <div class="metric-row"><div class="metric-label">Betweenness</div><div class="metric-value cyan">${(m.betweenness ?? 0).toFixed(4)}</div></div>
-                <div class="metric-row"><div class="metric-label">Constraint</div><div class="metric-value cyan">${(m.constraint ?? 1).toFixed(4)}</div></div>
-                <div class="metric-row"><div class="metric-label">Community</div><div class="metric-value">${m.community ?? 'N/A'}</div></div>
-                <div class="metric-row"><div class="metric-label">Degree</div><div class="metric-value">${m.degree ?? 0}</div></div>`;
-
-            const nbs = [];
-            currentEdges.forEach(e => {
-                if (e.source === nodeId) nbs.push({ arrow: '→', rel: e.relation, id: e.target, name: nodeLabelMap[e.target] || e.target });
-                else if (e.target === nodeId) nbs.push({ arrow: '←', rel: e.relation, id: e.source, name: nodeLabelMap[e.source] || e.source });
-            });
-            const ctxBox = document.getElementById('node-context-box');
-            const rows = nbs.slice(0, 14).map(n =>
-                `<div class="ctx-edge" onclick="focusOnNode('${n.id}')"><span class="ctx-rel">${n.arrow} ${n.rel}</span> ${n.name}</div>`).join('');
-            ctxBox.innerHTML = `
-                <button class="ctx-close" onclick="closeCtxBox()" title="Chiudi">[X]</button>
-                <div class="ctx-title">${node.label || node.id}</div>
-                <div class="ctx-sub">${nbs.length} connessioni dirette · relazioni SVO</div>
-                ${rows || '<div class="ctx-edge" style="cursor:default">nessun vicino nel canvas corrente</div>'}`;
-            if (domPos) {
-                const wrap = document.getElementById('graph-panel-wrap');
-                const x = Math.min(domPos.x + 18, wrap.clientWidth - 262);
-                const y = Math.min(Math.max(domPos.y - 12, 8), wrap.clientHeight - 200);
-                ctxBox.style.left = Math.max(x, 8) + 'px';
-                ctxBox.style.top = y + 'px';
-                ctxBox.style.display = 'block';
-            }
-        }
-
-        function closeCtxBox() {
-            document.getElementById('node-context-box').style.display = 'none';
-        }
-
-        function focusOnNode(nid) {
-            if (!network || !currentNodes.get(nid)) return;
-            network.focus(nid, { scale: 1.15, animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
-            network.selectNodes([nid]);
-            const pos = network.canvasToDOM(network.getPosition(nid));
-            showNodeInfo(nid, pos);
-        }
-
-        function searchNode() {
-            const inp = document.getElementById('search-node');
-            const q = inp.value.trim().toLowerCase();
-            if (!q || !currentNodes) return;
-            const match = currentNodes.get().find(n =>
-                (n.label || '').toLowerCase().includes(q) || n.id.toLowerCase().includes(q));
-            if (!match) {
-                inp.classList.add('not-found');
-                setTimeout(() => inp.classList.remove('not-found'), 900);
-                return;
-            }
-            focusOnNode(match.id);
-        }
-
-        function buildHubsList(filtered) {
-            const hubs = [...filtered]
-                .sort((a, b) => (b.metrics?.degree ?? 0) - (a.metrics?.degree ?? 0))
-                .slice(0, 10);
-            document.getElementById('hubs-list').innerHTML = hubs.map((n, i) =>
-                `<div class="hub-row" onclick="focusOnNode('${n.id}')">
-                    <span class="hub-rank">${String(i + 1).padStart(2, '0')}</span>
-                    <span class="hub-name">${n.label}</span>
-                    <span class="hub-deg">${n.metrics?.degree ?? 0}</span>
-                </div>`).join('') || '<p class="sidebar-placeholder">Nessun hub rilevato.</p>';
-        }
-
-        // ================= EXPORT =================
-        function downloadExport(fmt) {
-            const scope = document.getElementById('export-scope').checked ? 'hub' : 'all';
-            window.location.href = `/api/export/${fmt}?scope=${scope}`;
-        }
-
-        // ================= GRAPH RENDERING =================
-        async function renderGraph() {
-            try {
-                console.log('[Arachne] renderGraph: fetch /api/graph...');
-                const res = await fetch('/api/graph');
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                const data = await res.json();
-                console.log('[Arachne] payload:', data.nodes.length, 'nodi,', (data.edges || data.links || []).length, 'archi');
-
-                const MAX_NODES = 400;
-                const totalNodes = data.nodes.length;
-                let filtered = data.nodes.filter(n => (n.metrics?.degree ?? 0) > 0);
-                filtered.sort((a, b) => (b.metrics?.betweenness ?? 0) - (a.metrics?.betweenness ?? 0));
-                if (filtered.length > MAX_NODES) filtered = filtered.slice(0, MAX_NODES);
-                const keepIds = new Set(filtered.map(n => n.id));
-                const rawEdges = (data.edges || data.links || []).filter(e => keepIds.has(e.source) && keepIds.has(e.target));
-                console.log(`[Arachne] rendering: ${filtered.length}/${totalNodes} nodi, ${rawEdges.length} archi`);
-
-                const notice = document.getElementById('graph-notice');
-                if (notice && filtered.length < totalNodes) {
-                    notice.textContent = `⚡ Visualizzati i ${filtered.length} nodi centrali su ${totalNodes.toLocaleString('it-IT')} totali (filtro connessione + betweenness).`;
-                    notice.style.display = 'block';
-                } else if (notice) { notice.style.display = 'none'; }
-
-                nodeLabelMap = {};
-                filtered.forEach(n => { nodeLabelMap[n.id] = n.label; });
-                currentEdges = rawEdges;
-                buildHubsList(filtered);
-
-                currentNodes = new vis.DataSet(filtered.map(n => ({
-                    id: n.id, label: n.label,
-                    title: `Tipo: ${n.type}<br>Betweenness: ${n.metrics?.betweenness || 0}<br>Constraint: ${n.metrics?.constraint ?? 1}`,
-                    group: n.metrics?.community ?? 0,
-                    value: (n.metrics?.betweenness || 0.01) * 100 + 10,
-                    rawMetrics: n.metrics || {}, rawType: n.type || 'N/A'
-                })));
-                const visEdges = new vis.DataSet(rawEdges.map(e => ({
-                    from: e.source, to: e.target, label: e.relation, arrows: 'to',
-                    color: { color: 'rgba(168, 85, 247, 0.4)', highlight: '#22d3ee' },
-                    font: { color: '#8b7bb8', size: 10, align: 'middle', strokeWidth: 0 }
-                })));
-
-                const container = document.getElementById('mynetwork');
-                const solver = document.getElementById('physics-solver').value;
-                const options = {
-                    nodes: { shape: 'dot', font: { color: '#e9e4f5', face: 'Inter', size: 13, strokeWidth: 0 },
-                             borderWidth: 2, shadow: { enabled: true, color: 'rgba(168, 85, 247, 0.4)', size: 12 } },
-                    edges: { smooth: { type: 'continuous' } },
-                    groups: {
-                        0: { color: { background: '#a855f7', border: '#d8b4fe' } },
-                        1: { color: { background: '#22d3ee', border: '#a5f3fc' } },
-                        2: { color: { background: '#f472b6', border: '#fbcfe8' } },
-                        3: { color: { background: '#34d399', border: '#a7f3d0' } },
-                        4: { color: { background: '#fbbf24', border: '#fde68a' } },
-                        5: { color: { background: '#818cf8', border: '#c7d2fe' } }
-                    },
-                    physics: physicsOptions(),
-                    interaction: { hover: true, tooltipDelay: 150, dragView: true, dragNodes: true }
-                };
-                network = new vis.Network(container, { nodes: currentNodes, edges: visEdges }, options);
-                algorithmPlaying = true;
-                document.getElementById('btn-play-stop').textContent = '⏸ Stop Algorithm';
-                document.getElementById('btn-play-stop').classList.remove('stopped');
-                bindPhysicsControls();
-                console.log('[Arachne] vis.Network creato:', filtered.length, 'nodi,', rawEdges.length, 'archi, solver:', solver);
-
-                // Fluidità drag: ferma la fisica mentre si trascina, ripristina al rilascio
-                network.on('dragStart', function () {
-                    if (algorithmPlaying) network.setOptions({ physics: { enabled: false } });
-                });
-                network.on('dragEnd', function () {
-                    if (algorithmPlaying) network.setOptions({ physics: { enabled: true } });
-                });
-
-                // Auto-stop al termine della stabilizzazione iniziale
-                let autoStopped = false;
-                network.on('stabilizationIterationsDone', function () {
-                    if (autoStopped || !algorithmPlaying) return;
-                    autoStopped = true;
-                    toggleAlgorithm();
-                    console.log('[Arachne] stabilizzazione completata: algoritmo in pausa.');
-                });
-
-                network.on('click', function (params) {
-                    if (params.nodes.length > 0) {
-                        showNodeInfo(params.nodes[0], params.pointer.DOM);
-                    } else {
-                        document.getElementById('node-context-box').style.display = 'none';
-                        document.getElementById('node-details').innerHTML =
-                            '<p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p>';
-                    }
-                });
-                network.fit();
-            } catch (err) {
-                console.error('renderGraph fallita:', err);
-                document.getElementById('mynetwork').innerHTML =
-                    '<p style="color:#f472b6; padding:20px; font-family:JetBrains Mono,monospace;">Errore nel caricamento del grafo. Controlla la console.</p>';
-            }
-        }
-
-        function goToGraph() {
-            document.getElementById('step-1').classList.remove('active');
-            document.getElementById('step-2').classList.remove('active');
-            document.getElementById('main-container').classList.add('container-wide');
-            document.getElementById('step-3').classList.add('active');
-            renderGraph();
-        }
-    </script>
+    async function renderGraph(){
+        try{ console.log('[Arachne] renderGraph...'); const res=await fetch('/api/graph'); if(!res.ok)throw new Error('HTTP '+res.status); const data=await res.json(); console.log('[Arachne] payload:',data.nodes.length,'nodi,',(data.edges||[]).length,'archi');
+            const MAX=400; let filtered=data.nodes.filter(n=>(n.metrics?.degree??0)>0); filtered.sort((a,b)=>(b.metrics?.betweenness??0)-(a.metrics?.betweenness??0)); if(filtered.length>MAX)filtered=filtered.slice(0,MAX); const keep=new Set(filtered.map(n=>n.id)); currentEdges=(data.edges||[]).filter(e=>keep.has(e.source)&&keep.has(e.target)); currentFiltered=filtered; nodeLabelMap={}; filtered.forEach(n=>{nodeLabelMap[n.id]=n.label;});
+            const notice=document.getElementById('graph-notice'); if(notice&&filtered.length<data.nodes.length){ notice.textContent=`⚡ ${filtered.length} nodi centrali su ${data.nodes.length.toLocaleString('it-IT')} (filtro connessione + betweenness).`; notice.style.display='block'; }else notice.style.display='none';
+            buildHubsList(filtered);
+            graph=new UndirectedGraph();
+            const commColors={0:'#a855f7',1:'#22d3ee',2:'#f472b6',3:'#34d399',4:'#fbbf24',5:'#818cf8'};
+            filtered.forEach(n=>graph.addNode(n.id,{label:n.label,size:Math.min(35,Math.max(3,(n.metrics?.betweenness||0.01)*200+3)),color:commColors[n.metrics?.community??0]||'#888',rawMetrics:n.metrics||{},rawType:n.type||'N/A',x:Math.random()*100,y:Math.random()*100}));
+            currentEdges.forEach(e=>graph.addEdge(e.source,e.target,{label:e.relation,type:'arrow',size:1,color:'rgba(168,85,247,0.45)'}));
+            document.getElementById('mynetwork').innerHTML='';
+            sigma=new Sigma(graph,document.getElementById('mynetwork'),{renderEdgeLabels:true,defaultEdgeType:'arrow',labelFont:'Inter',labelSize:13,edgeLabelFont:'JetBrains Mono',edgeLabelSize:9,stagePadding:30,labelColor:{color:'#e9e4f5'},defaultEdgeColor:'rgba(168,85,247,0.35)',minCameraRatio:0.1,maxCameraRatio:10});
+            layout=new ForceAtlas2Layout(graph,{settings:{gravity:.2,scalingRatio:10,slowDown:10,outboundAttractionDistribution:true,edgeWeightInfluence:0}}); layout.start(); algorithmPlaying=true; document.getElementById('btn-play-stop').textContent='⏸ Stop Algorithm'; document.getElementById('btn-play-stop').classList.remove('stopped');
+            setTimeout(()=>{if(algorithmPlaying){toggleAlgorithm();console.log('[Arachne] stabilizzazione completata: pausa automatica');}},12000);
+            sigma.on('clickNode',({node,event})=>{if(node){showNodeInfo(node,{x:event.clientX,y:event.clientY});}else{closeCtxBox();document.getElementById('node-details').innerHTML='<p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p>';}});
+            sigma.on('clickStage',()=>{closeCtxBox();});
+            console.log('[Arachne] Sigma.js+ForceAtlas2: pronto,',filtered.length,'nodi,',currentEdges.length,'archi');
+        }catch(err){ console.error('renderGraph fallita:',err); document.getElementById('mynetwork').innerHTML='<p style="color:var(--red);padding:20px;font-family:JetBrains Mono,monospace;">Errore nel caricamento del grafo. Controlla la console.</p>'; }
+    }
+    function goToGraph(){ document.getElementById('step-1').classList.remove('active'); document.getElementById('step-2').classList.remove('active'); document.getElementById('main-container').classList.add('container-wide'); document.getElementById('step-3').classList.add('active'); renderGraph(); }
+</script>
 </body>
 </html>
