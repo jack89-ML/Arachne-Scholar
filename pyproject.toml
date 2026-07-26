@@ -1,13 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "arachne-scholar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first Knowledge Graph Engine for Academic Literature via SVO Dependency Parsing"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "spacy>=3.7.0",
-    "spacy-transformers>=1.3.0",
     "fastapi>=0.109.0",
     "uvicorn>=0.27.0",
-    "networkx>=3.2.1"
+    "networkx>=3.2.1",
+    "pymupdf>=1.24.0"
 ]
+
+[project.optional-dependencies]
+gpu = [
+    "spacy-transformers>=1.3.0"
+]
+
+[tool.setuptools]
+py-modules = []
