@@ -289,6 +289,7 @@
             <div class="graph-layout">
                 <div class="card graph-panel">
                     <h3>Dashboard Topologica</h3>
+                    <p id="graph-notice" style="display:none; font-family:'JetBrains Mono',monospace; font-size:12px; color:#22d3ee; margin:4px 0 10px;"></p>
                     <div id="mynetwork"></div>
                 </div>
                 <div class="sidebar">
@@ -353,11 +354,34 @@
         // Funzione per renderizzare il grafo
         async function renderGraph() {
             try {
+                console.log('[Arachne] renderGraph: fetch /api/graph...');
                 const res = await fetch('/api/graph');
                 if (!res.ok) throw new Error('Errore HTTP ' + res.status + ' nel caricamento del grafo');
                 const data = await res.json();
+                console.log('[Arachne] payload:', data.nodes.length, 'nodi,', (data.edges || data.links || []).length, 'archi');
 
-                const visNodes = new vis.DataSet(data.nodes.map(n => ({
+                // --- FILTRO DI PROTEZIONE CANVAS ---
+                // vis-network con fisica attiva freeza il main thread oltre poche migliaia
+                // di nodi: teniamo solo i nodi connessi (degree>0), cap ai top MAX_NODES
+                // per betweenness, e solo gli archi tra i superstiti.
+                const MAX_NODES = 400;
+                const totalNodes = data.nodes.length;
+                let filtered = data.nodes.filter(n => (n.metrics?.degree ?? 0) > 0);
+                filtered.sort((a, b) => (b.metrics?.betweenness ?? 0) - (a.metrics?.betweenness ?? 0));
+                if (filtered.length > MAX_NODES) filtered = filtered.slice(0, MAX_NODES);
+                const keepIds = new Set(filtered.map(n => n.id));
+                const rawEdges = (data.edges || data.links || []).filter(e => keepIds.has(e.source) && keepIds.has(e.target));
+                console.log(`[Arachne] rendering: ${filtered.length}/${totalNodes} nodi, ${rawEdges.length} archi`);
+
+                const notice = document.getElementById('graph-notice');
+                if (notice && filtered.length < totalNodes) {
+                    notice.textContent = `\u26a1 Visualizzati i ${filtered.length} nodi centrali su ${totalNodes.toLocaleString('it-IT')} totali (filtrati per connessione e betweenness).`;
+                    notice.style.display = 'block';
+                } else if (notice) {
+                    notice.style.display = 'none';
+                }
+
+                const visNodes = new vis.DataSet(filtered.map(n => ({
                     id: n.id,
                     label: n.label,
                     title: `Tipo: ${n.type}<br>Betweenness: ${n.metrics?.betweenness || 0}<br>Constraint: ${n.metrics?.constraint ?? 1}`,
@@ -367,7 +391,7 @@
                     rawType: n.type || 'N/A'
                 })));
 
-                const visEdges = new vis.DataSet((data.edges || data.links || []).map(e => ({
+                const visEdges = new vis.DataSet(rawEdges.map(e => ({
                     from: e.source,
                     to: e.target,
                     label: e.relation,
@@ -401,6 +425,7 @@
                 };
 
                 const network = new vis.Network(container, networkData, options);
+                console.log('[Arachne] vis.Network creato con', filtered.length, 'nodi e', rawEdges.length, 'archi');
 
                 // Plancia di comando: al click su un nodo mostra le metriche nella sidebar
                 network.on('click', function(params) {
