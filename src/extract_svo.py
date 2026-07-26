@@ -261,6 +261,16 @@ RELATION_VERBS_DICT = {
 }
 RELATION_VERBS = RELATION_VERBS_DICT.get(LANG, RELATION_VERBS_DICT["en"])
 
+EDITORIAL_BLOCKLIST = {
+    # (FIX) Stopwords editoriali e artefatti di stampa — ignorati a priori
+    # per eliminare nodi spazzatura e metadati PDF scambiati per entità.
+    "ebook", "pubfactory", "handbook", "article", "journal",
+    "press", "author", "tion", "ment", "lation", "edness",
+    # (FIX) Neutralizza l'hub semantico del dominio — cfr. sociologia
+    "sociology", "sociological",
+}
+
+
 NER_TYPE_MAP = {
     "PERSON": "author",
     "ORG": "institution",
@@ -291,6 +301,9 @@ def normalize(text):
     tutti i node_id: due varianti morfologiche che canonizzano alla stessa
     stringa generano un solo nodo (es. 'Trump-era' -> 'trump')."""
     t = text.strip()
+    # (FIX) Elimina caratteri di controllo ASCII illegali XML (es. \x00-\x1f)
+    # per evitare crash dei parser GraphML/GEXF/Gephi.
+    t = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", t)
     # rimuovi caratteri markdown/detriti di conversione PDF
     t = re.sub(r"[_*#`~\\\[\](){}<>]", " ", t)
     t = re.sub(r"[^a-z0-9\s\-']", " ", t.lower())
@@ -353,6 +366,9 @@ def is_valid_entity(label, lemma_head):
         return False
     norm = normalize(label)
     if not norm or len(norm) < 4:
+        return False
+    norm_simple = label.lower().strip()
+    if norm_simple in EDITORIAL_BLOCKLIST or normalize(label) in EDITORIAL_BLOCKLIST:
         return False
     # pronomi/question-words (fix v2.1: evita nodi tipo 'which', 'they')
     if norm in JUNK_ENTITIES or lemma_head in JUNK_ENTITIES:
@@ -586,6 +602,9 @@ def extract_cowindow_edges(doc, entities, window=5, max_per_window=12):
 
 
 def chunk_text(text, max_chars=50_000):
+    # (FIX) Ricongiunge parole spezzate dalla sillabazione giustificata PDF
+    # (es. "soci-\nology" -> "sociology"). Applicato PRIMA del chunking.
+    text = re.sub(r"-\s*\n\s*", "", text)
     if len(text) <= max_chars:
         return [text]
     chunks, current = [], ""
