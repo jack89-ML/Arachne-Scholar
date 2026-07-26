@@ -285,12 +285,26 @@ TYPE_KEYWORDS = [
 
 
 def normalize(text):
-    """Normalizza: lowercase, rimuove caratteri non-alfabetici, collassa spazi."""
-    t = text.lower()
-    t = re.sub(r"[_*#`~\[\](){}<>]", " ", t)  # markdown artifacts
-    t = re.sub(r"[^a-z0-9\s\-']", " ", t)
+    """(v1.6) Normalizzazione canonicizzata: lowercased, strip di spaziature
+    PDF, rimozione artefatti markdown, suffissi deboli (-era, -related...) e
+    collasso di whitespace. La forma prodotta e' il riferimento unico per
+    tutti i node_id: due varianti morfologiche che canonizzano alla stessa
+    stringa generano un solo nodo (es. 'Trump-era' -> 'trump')."""
+    t = text.strip()
+    # rimuovi caratteri markdown/detriti di conversione PDF
+    t = re.sub(r"[_*#`~\\\[\](){}<>]", " ", t)
+    t = re.sub(r"[^a-z0-9\s\-']", " ", t.lower())
     t = re.sub(r"\s+", " ", t).strip()
-    return t
+    # (FIX 2-3) Suffix-stripping canonico: normalizza -era, -based, ecc.
+    # alla root per fondere nodi frammentati. Ordine: suffissi piu' lunghi
+    # prima per evitare matching parziali.
+    for suffix in ["-oriented", "-induced", "-related", "-driven",
+                    "-specific", "-esque", "-style", "-based", "-like",
+                    "-era"]:
+        if t.endswith(suffix) and len(t) - len(suffix) >= 4:
+            t = t[:-len(suffix)]
+            break  # un solo suffix match per label
+    return t.strip(" -'")
 
 
 def node_id_from(text):
@@ -302,7 +316,8 @@ def node_id_from(text):
 def clean_chunk_label(chunk):
     """
     Pulisce il label del chunk: rimuove determinanti, possessivi,
-    tokens junk, e normalizza la forma.
+    tokens junk, e normalizza la forma. (v1.6) Strip aggressivo
+    di whitespace/spaziature PDF da inizio/fine label.
     """
     tokens = []
     for tok in chunk:
@@ -313,14 +328,14 @@ def clean_chunk_label(chunk):
             continue
         # rimuovi caratteri markdown residui
         txt = re.sub(r"<\s*br\s*/?\s*>", " ", tok.text, flags=re.IGNORECASE)
-        txt = re.sub(r"[_*#`~\[\](){}<>]", "", txt)
+        txt = re.sub(r"[_*#`~\\[\\](){}<>]", "", txt)
         if not txt or not re.search(r"[a-zA-Z]", txt):
             continue
         tokens.append(txt.strip())
     label = " ".join(tokens).strip()
-    # collassa spazi e trattini
+    # collassa spazi e trattini; aggiuntivo strip contro residui di conversione
     label = re.sub(r"\s+-\s+", "-", label)
-    label = re.sub(r"\s+", " ", label).strip(" -")
+    label = re.sub(r"\s+", " ", label).strip("\"'` \t\n\r\f\v-–—")
     return label
 
 
