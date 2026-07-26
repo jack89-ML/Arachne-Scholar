@@ -267,9 +267,11 @@ def get_logs():
 
 @app.get("/api/graph")
 def get_graph():
-    """Grafo attivo. Risponde SEMPRE 200 con JSON formalmente valido:
-    se il file manca, e' corrotto o non ha la forma attesa, restituisce
-    un grafo vuoto {'nodes': [], 'edges': []} cosi' Sigma.js non crasha."""
+    """Grafo attivo. Risponde SEMPRE 200 con payload sanitizzato:
+    - file mancante/corrotto/senza nodi validi -> {'nodes': [], 'edges': []}
+    - nodi: solo dict con id valido, deduplicati, label/metrics garantiti
+    - archi: solo endpoint esistenti, niente self-loop, dedupe non orientato
+    Sigma.js/Graphology non ricevera' mai una struttura che lo faccia crashare."""
     empty = {"nodes": [], "edges": []}
     metrics_path = os.path.join(OUT_DIR, "graph_with_metrics.json")
     base_path = os.path.join(OUT_DIR, "graph.json")
@@ -280,12 +282,50 @@ def get_graph():
     try:
         with open(src, encoding="utf-8") as f:
             data = json.load(f)
-        if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
+        if not isinstance(data, dict):
             return JSONResponse(content=empty)
-        if not isinstance(data.get("edges"), list):
-            links = data.get("links")
-            data["edges"] = links if isinstance(links, list) else []
-        return JSONResponse(content=data)
+        nodes_raw = data.get("nodes")
+        if not isinstance(nodes_raw, list):
+            return JSONResponse(content=empty)
+        edges_raw = data.get("edges")
+        if not isinstance(edges_raw, list):
+            links_raw = data.get("links")
+            edges_raw = links_raw if isinstance(links_raw, list) else []
+        # --- sanitizzazione nodi: id valido, dedupe, campi garantiti
+        clean_nodes, seen_ids = [], set()
+        for n in nodes_raw:
+            if not isinstance(n, dict):
+                continue
+            nid = n.get("id")
+            if nid is None or (isinstance(nid, str) and not nid.strip()) or nid in seen_ids:
+                continue
+            seen_ids.add(nid)
+            n.setdefault("label", str(nid))
+            if not isinstance(n.get("metrics"), dict):
+                n["metrics"] = {}
+            clean_nodes.append(n)
+        if not clean_nodes:
+            return JSONResponse(content=empty)
+        # --- sanitizzazione archi: endpoint esistenti, no self-loop, dedupe
+        clean_edges, seen_pairs = [], set()
+        for e in edges_raw:
+            if not isinstance(e, dict):
+                continue
+            s, t = e.get("source"), e.get("target")
+            if s is None or t is None or s == t:
+                continue
+            if s not in seen_ids or t not in seen_ids:
+                continue
+            key = tuple(sorted((str(s), str(t))))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            e.setdefault("relation", "")
+            clean_edges.append(e)
+        out = {"nodes": clean_nodes, "edges": clean_edges}
+        if isinstance(data.get("meta"), dict):
+            out["meta"] = data["meta"]
+        return JSONResponse(content=out)
     except Exception:
         return JSONResponse(content=empty)
 

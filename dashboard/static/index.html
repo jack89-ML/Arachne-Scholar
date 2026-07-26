@@ -280,14 +280,14 @@
     async function renderGraph(){
         currentEdges = []; currentFiltered = []; nodeLabelMap = {};
         try{ console.log('[Arachne] renderGraph...'); const res=await fetch('/api/graph'); if(!res.ok)throw new Error('HTTP '+res.status); const data=await res.json(); console.log('[Arachne] payload:',data.nodes.length,'nodi,',(data.edges||[]).length,'archi');
-            if(!data.nodes.length){ const notice=document.getElementById('graph-notice'); notice.textContent='⚠ Nessun grafo attivo: apri un progetto dalla Home o avvia una nuova estrazione.'; notice.style.display='block'; document.getElementById('hubs-list').innerHTML='<p class="sidebar-placeholder">Nessun grafo caricato.</p>'; return; }
-            const MAX=400; let filtered=data.nodes.filter(n=>(n.metrics?.degree??0)>0); filtered.sort((a,b)=>(b.metrics?.betweenness??0)-(a.metrics?.betweenness??0)); if(filtered.length>MAX)filtered=filtered.slice(0,MAX); const keep=new Set(filtered.map(n=>n.id)); currentEdges=(data.edges||[]).filter(e=>keep.has(e.source)&&keep.has(e.target)); currentFiltered=filtered; nodeLabelMap={}; filtered.forEach(n=>{nodeLabelMap[n.id]=n.label;});
+            if(!data.nodes.length){ const notice=document.getElementById('graph-notice'); notice.textContent='◌ Nessun progetto attivo. Seleziona o crea un progetto.'; notice.style.display='block'; document.getElementById('hubs-list').innerHTML='<p class="sidebar-placeholder">Nessun grafo caricato.</p>'; return; }
+            const MAX=400; let filtered=data.nodes.filter(n=>(n.metrics?.degree??0)>0); filtered.sort((a,b)=>(b.metrics?.betweenness??0)-(a.metrics?.betweenness??0)); if(filtered.length>MAX)filtered=filtered.slice(0,MAX); const keep=new Set(filtered.map(n=>n.id)); currentEdges=(data.edges||[]).filter(e=>keep.has(e.source)&&keep.has(e.target)&&e.source!==e.target); currentFiltered=filtered; nodeLabelMap={}; filtered.forEach(n=>{nodeLabelMap[n.id]=n.label;});
             const notice=document.getElementById('graph-notice'); if(notice&&filtered.length<data.nodes.length){ notice.textContent=`⚡ ${filtered.length} nodi centrali su ${data.nodes.length.toLocaleString('it-IT')} (filtro connessione + betweenness).`; notice.style.display='block'; }else notice.style.display='none';
             buildHubsList(filtered);
             graph=new UndirectedGraph();
             const commColors={0:'#a855f7',1:'#22d3ee',2:'#f472b6',3:'#34d399',4:'#fbbf24',5:'#818cf8'};
-            filtered.forEach(n=>graph.addNode(n.id,{label:n.label,size:Math.min(35,Math.max(3,(n.metrics?.betweenness||0.01)*200+3)),color:commColors[n.metrics?.community??0]||'#888',rawMetrics:n.metrics||{},rawType:n.type||'N/A',x:Math.random()*100,y:Math.random()*100}));
-            currentEdges.forEach(e=>graph.addEdge(e.source,e.target,{label:e.relation,type:'arrow',size:1,color:'rgba(168,85,247,0.45)'}));
+            filtered.forEach(n=>graph.mergeNode(n.id,{label:n.label,size:Math.min(35,Math.max(3,(n.metrics?.betweenness||0.01)*200+3)),color:commColors[n.metrics?.community??0]||'#888',rawMetrics:n.metrics||{},rawType:n.type||'N/A',x:Math.random()*100,y:Math.random()*100}));
+            currentEdges.forEach(e=>graph.mergeEdge(e.source,e.target,{label:e.relation,type:'arrow',size:1,color:'rgba(168,85,247,0.45)'}));
             document.getElementById('mynetwork').innerHTML='';
             sigma=new Sigma(graph,document.getElementById('mynetwork'),{renderEdgeLabels:true,defaultEdgeType:'arrow',labelFont:'Inter',labelSize:13,edgeLabelFont:'JetBrains Mono',edgeLabelSize:9,stagePadding:30,labelColor:{color:'#e9e4f5'},defaultEdgeColor:'rgba(168,85,247,0.35)',minCameraRatio:0.1,maxCameraRatio:10});
             layout = null;
@@ -302,7 +302,7 @@
             sigma.on('clickNode',({node,event})=>{if(node){showNodeInfo(node,{x:event.clientX,y:event.clientY});}else{closeCtxBox();document.getElementById('node-details').innerHTML='<p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p>';}});
             sigma.on('clickStage',()=>{closeCtxBox();});
             console.log('[Arachne] Sigma.js+ForceAtlas2: pronto,',filtered.length,'nodi,',currentEdges.length,'archi');
-        }catch(err){ console.error('renderGraph fallita:',err); document.getElementById('mynetwork').innerHTML='<p style="color:var(--red);padding:20px;font-family:JetBrains Mono,monospace;">Errore nel caricamento del grafo. Controlla la console.</p>'; }
+        }catch(err){ console.error('renderGraph fallita:',err); const notice=document.getElementById('graph-notice'); notice.textContent='◌ Nessun progetto attivo. Seleziona o crea un progetto.'; notice.style.display='block'; document.getElementById('hubs-list').innerHTML='<p class="sidebar-placeholder">Nessun grafo caricato.</p>'; }
     }
     function goToGraph(){ document.getElementById('step-1').classList.remove('active'); document.getElementById('step-2').classList.remove('active'); document.getElementById('main-container').classList.add('container-wide'); document.getElementById('step-3').classList.add('active'); renderGraph(); }
 </script>
