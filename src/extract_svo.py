@@ -13,13 +13,14 @@ from collections import Counter
 import spacy
 
 # --- LINGUA & MODELLO (v1.2 multilingua EN/IT/ES) ------------------------------
-LANG = sys.argv[3].lower() if len(sys.argv) > 3 else "en"
+_lang_arg = sys.argv[3].lower() if len(sys.argv) > 3 and not sys.argv[3].startswith("-") else "en"
 LANG_MODELS = {
     "en": "en_core_web_lg",
     "it": "it_core_news_lg",
     "es": "es_core_news_lg",
 }
-MODEL_NAME = LANG_MODELS.get(LANG, LANG_MODELS["en"])
+LANG = _lang_arg if _lang_arg in LANG_MODELS else "en"
+MODEL_NAME = LANG_MODELS[LANG]
 
 # --- GPU SETUP ----------------------------------------------------------------
 try:
@@ -374,8 +375,21 @@ def classify(label, lemma_head):
     return "concept"
 
 
-def extract_entities(doc, entities):
-    """Estrae entità da doc spaCy e le aggiunge al dict condiviso."""
+def extract_entities(doc, entities, freq=None):
+    """Estrae entità da doc spaCy e le aggiunge al dict condiviso.
+    Se freq (Counter) e' passato, conta le occorrenze come
+    'n. di frasi che menzionano l'entità' (una per frase, evitando il
+    doppio conteggio NER+noun-chunk sulla stessa menzione)."""
+    counted = set()
+
+    def _bump(sent_start, nid):
+        if freq is None or not nid:
+            return
+        key = (sent_start, nid)
+        if key not in counted:
+            counted.add(key)
+            freq[nid] += 1
+
     # 1) NER
     for ent in doc.ents:
         label = clean_chunk_label(ent)
@@ -384,6 +398,7 @@ def extract_entities(doc, entities):
             continue
         ntype = NER_TYPE_MAP.get(ent.label_, "concept")
         nid = node_id_from(norm)
+        _bump(ent.sent.start, nid)
         if nid and nid not in entities:
             entities[nid] = {
                 "id": nid,
@@ -400,7 +415,10 @@ def extract_entities(doc, entities):
             continue
         norm = normalize(label)
         nid = node_id_from(norm)
-        if not nid or nid in entities:
+        if not nid:
+            continue
+        _bump(chunk.sent.start, nid)
+        if nid in entities:
             continue
         ntype = classify(label, lem)
         entities[nid] = {
@@ -500,6 +518,38 @@ def extract_cochunk_edges(doc, entities, max_per_sent=5):
     return edges
 
 
+def extract_cowindow_edges(doc, entities, window=5, max_per_window=12):
+    """(A) Co-occorrenza a finestra scorrevole di `window` frasi.
+    Approssima la finestra-a-paragrafo del vecchio build_local_graph.py,
+    mantenendo il matching NLP (stessa pulizia chunk di extract_cochunk_edges).
+    max_per_window argina l'esplosione combinatoria sulle frasi dense."""
+    edges = Counter()
+    sent_nids = []
+    for sent in doc.sents:
+        nids, seen = [], set()
+        for chunk in sent.noun_chunks:
+            label = clean_chunk_label(chunk)
+            norm = normalize(label)
+            nid = node_id_from(norm)
+            if nid in entities and nid not in seen:
+                seen.add(nid)
+                nids.append(nid)
+        sent_nids.append(nids)
+    for i in range(len(sent_nids)):
+        pool, seen_pool = [], set()
+        for j in range(i, min(i + window, len(sent_nids))):
+            for nid in sent_nids[j]:
+                if nid not in seen_pool:
+                    seen_pool.add(nid)
+                    pool.append(nid)
+        pool = pool[:max_per_window]
+        for ai in range(len(pool)):
+            for bi in range(ai + 1, len(pool)):
+                a, b = sorted([pool[ai], pool[bi]])
+                edges[(a, b, "co_occurs")] += 1
+    return edges
+
+
 def chunk_text(text, max_chars=200_000):
     if len(text) <= max_chars:
         return [text]
@@ -515,31 +565,41 @@ def chunk_text(text, max_chars=200_000):
     return chunks
 
 
-def process_file(path, nlp):
+def process_file(path, nlp, window_size=5):
     with open(path, encoding="utf-8") as f:
         text = f.read()
 
     entities, svo_edges, co_edges = {}, Counter(), Counter()
+    freq = Counter()
     pieces = chunk_text(text)
     t0 = time.time()
 
     for i, piece in enumerate(pieces):
         for doc in nlp.pipe([piece], batch_size=8):
-            entities = extract_entities(doc, entities)
+            entities = extract_entities(doc, entities, freq)
             svo_edges.update(extract_svo_edges(doc, entities))
-            co_edges.update(extract_cochunk_edges(doc, entities))
+            co_edges.update(extract_cowindow_edges(doc, entities, window=window_size))
         elapsed = time.time() - t0
         print(f"    [{i+1}/{len(pieces)}] {len(entities)} entità, "
               f"{len(svo_edges)} SVO, {elapsed:.0f}s", file=sys.stderr)
 
-    return entities, svo_edges, co_edges
+    return entities, svo_edges, co_edges, freq
 
 
 def main():
-    md_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(
-        "~/scholar_engine/converted_md")
-    out_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.expanduser(
-        "~/scholar_engine/graph_out")
+    import argparse
+    parser = argparse.ArgumentParser(description="Arachne Scholar — SVO graph extractor (multilingua)")
+    parser.add_argument("md_dir", nargs="?", default=os.path.expanduser("~/scholar_engine/converted_md"))
+    parser.add_argument("out_dir", nargs="?", default=os.path.expanduser("~/scholar_engine/graph_out"))
+    parser.add_argument("lang", nargs="?", default=LANG)
+    parser.add_argument("--co-threshold", type=int, default=2,
+                        help="min co-occorrenze per arco co_occurs (default 2; era 5)")
+    parser.add_argument("--min-freq", type=int, default=2,
+                        help="frequenza corpus minima per tenere un nodo senza legami (default 2)")
+    parser.add_argument("--window-size", type=int, default=5,
+                        help="ampiezza finestra co-occorrenza in frasi (default 5)")
+    args = parser.parse_args()
+    md_dir, out_dir = args.md_dir, args.out_dir
     os.makedirs(out_dir, exist_ok=True)
 
     md_files = sorted(glob.glob(os.path.join(md_dir, "*.md")))
@@ -547,16 +607,15 @@ def main():
         print("Nessun markdown trovato.", file=sys.stderr)
         sys.exit(1)
 
-    all_entities, all_svo, all_co = {}, Counter(), Counter()
+    all_entities, all_svo, all_co, all_freq = {}, Counter(), Counter(), Counter()
 
     for fp in md_files:
         print(f"\n=== {os.path.basename(fp)[:70]} ===", file=sys.stderr)
-        ents, svo, co = process_file(fp, nlp)
+        ents, svo, co, fq = process_file(fp, nlp, window_size=args.window_size)
         all_entities.update(ents)
         all_svo.update(svo)
         all_co.update(co)
-
-    nodes = list(all_entities.values())
+        all_freq.update(fq)
 
     # Archi SVO: soglia >=1, etichetta verbale reale
     links, seen = [], set()
@@ -570,25 +629,44 @@ def main():
             "confidence": "extracted" if count >= 2 else "inferred",
         })
 
-    # co_occur: soglia >=5 (forte riduzione rumore), peso 1-2
+    # (B) co_occur: soglia co_threshold (default 2, come il vecchio prototipo),
+    # peso calibrato min(c,5), confidence graduata extracted>=3 / inferred=2
     for (src, tgt, rel), count in all_co.most_common():
-        if count < 5:
+        if count < args.co_threshold:
             break
         if (src, tgt, rel) in seen:
             continue
         seen.add((src, tgt, rel))
         links.append({
             "source": src, "target": tgt, "relation": rel,
-            "weight": 1 if count < 10 else 2,
-            "confidence": "inferred",
+            "weight": min(count, 5),
+            "confidence": "extracted" if count >= 3 else "inferred",
         })
+
+    # (C) FILTRO HAPAX: scarta nodi menzionati in meno di min_freq frasi E zero legami.
+    # Taglia la coda lunga di entita' citate una sola volta (i nodi isolati).
+    connected = set()
+    for l in links:
+        connected.add(l["source"])
+        connected.add(l["target"])
+    before = len(all_entities)
+    kept = {nid: n for nid, n in all_entities.items()
+            if all_freq.get(nid, 0) >= args.min_freq or nid in connected}
+    removed = before - len(kept)
+    if removed > 0:
+        links = [l for l in links if l["source"] in kept and l["target"] in kept]
+    nodes = list(kept.values())
+    print(f"  [hapax-filter] rimossi {removed}/{before} nodi "
+          f"(freq<{args.min_freq}, zero legami)", file=sys.stderr)
 
     graph = {
         "nodes": nodes,
         "links": links,
         "edges": links,
         "meta": {"model": MODEL_NAME, "gpu": GPU_ACTIVE, "lang": LANG,
-                 "engine": "spacy lg: NER + noun chunks + dependency parsing (multilingua)"},
+                 "co_threshold": args.co_threshold, "min_freq": args.min_freq,
+                 "window_size": args.window_size, "hapax_removed": removed,
+                 "engine": "spacy lg: NER + noun chunks + dep parsing + sliding-window co-occurrence"},
     }
 
     out_path = os.path.join(out_dir, "graph.json")
