@@ -430,6 +430,26 @@ def extract_entities(doc, entities, freq=None):
     return entities
 
 
+STRIP_CHARS = " \t\n\r-–—_‐‑‒'\"`’‘“”.,;:!?()[]{}<>|/\\*#@~^="
+
+
+def sanitize_label(text):
+    """(SANITIZE v1.5) Pulizia label: strip di punteggiatura orfana, trattini,
+    apici e caratteri spuri all'inizio/fine; collassa spazi multipli."""
+    t = text.strip(STRIP_CHARS)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def is_keepable_label(label):
+    """Tieni label >= 3 caratteri; sotto i 2 solo se acronimo maiuscolo (AI, EU...)."""
+    if not label:
+        return False
+    if len(label) >= 3:
+        return True
+    return label.isupper() and label.replace(" ", "").isalpha()
+
+
 def nid_for_span(token, entities):
     """
     Dato un token, risale al chunk che lo contiene nella frase e
@@ -658,6 +678,25 @@ def main():
     nodes = list(kept.values())
     print(f"  [hapax-filter] rimossi {removed}/{before} nodi "
           f"(freq<{args.min_freq}, zero legami)", file=sys.stderr)
+
+    # (SANITIZE v1.5) Filtro finale: pulizia label nodi e relazioni,
+    # scarto entita' spurie (<2 char non acronimi) e archi orfani.
+    pre_sanitize = len(nodes)
+    clean_nodes = []
+    for n in nodes:
+        lbl = sanitize_label(n["label"])
+        if not is_keepable_label(lbl):
+            continue
+        n["label"] = lbl
+        clean_nodes.append(n)
+    kept_ids = {n["id"] for n in clean_nodes}
+    links = [l for l in links if l["source"] in kept_ids and l["target"] in kept_ids]
+    for l in links:
+        l["relation"] = sanitize_label(l["relation"])
+    nodes = clean_nodes
+    if pre_sanitize - len(nodes):
+        print(f"  [sanitize] rimossi {pre_sanitize - len(nodes)} nodi spuri "
+              f"(label non valide)", file=sys.stderr)
 
     graph = {
         "nodes": nodes,

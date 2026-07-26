@@ -230,16 +230,28 @@
         .canvas-controls button:hover { background: rgba(34, 211, 238, 0.18); box-shadow: 0 0 18px rgba(34, 211, 238, 0.45); color: #fff; }
 
         #node-context-box {
-            display: none; position: absolute; z-index: 30; width: 250px;
+            display: none; position: absolute; z-index: 100; width: 250px;
             max-height: 300px; overflow-y: auto;
             background: rgba(14, 8, 26, 0.92); backdrop-filter: blur(20px);
             border: 1px solid rgba(34, 211, 238, 0.45); border-radius: 14px;
             padding: 14px 16px; box-shadow: 0 0 30px rgba(34, 211, 238, 0.25);
-            pointer-events: none;
+            pointer-events: auto;
         }
-        .ctx-title { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #fff; margin-bottom: 2px; word-break: break-word; }
+        .ctx-close {
+            position: absolute; top: 8px; right: 10px;
+            background: none; border: none; cursor: pointer;
+            font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700;
+            color: var(--text-dim); padding: 2px 6px; border-radius: 6px;
+        }
+        .ctx-close:hover { color: #f472b6; background: rgba(244, 114, 182, 0.12); }
+        .ctx-title { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #fff; margin-bottom: 2px; word-break: break-word; padding-right: 24px; }
         .ctx-sub { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 1px; color: var(--cyan); text-transform: uppercase; margin-bottom: 10px; }
-        .ctx-edge { font-size: 11px; color: var(--text); padding: 4px 0; border-bottom: 1px solid rgba(168,85,247,0.12); }
+        .ctx-edge {
+            font-size: 11px; color: var(--text); padding: 5px 6px;
+            border-bottom: 1px solid rgba(168,85,247,0.12);
+            cursor: pointer; border-radius: 6px; transition: background 0.15s;
+        }
+        .ctx-edge:hover { background: rgba(34, 211, 238, 0.12); color: #fff; }
         .ctx-rel { font-family: 'JetBrains Mono', monospace; color: var(--violet-soft); font-size: 10px; }
 
         .search-row { display: flex; gap: 10px; margin-bottom: 12px; }
@@ -421,8 +433,8 @@
                         <div class="sidebar-title">// Fisica</div>
                         <div class="physics-row">
                             <select id="physics-solver" class="btn">
-                                <option value="barnesHut">barnesHut</option>
                                 <option value="forceAtlas2Based">forceAtlas2Based</option>
+                                <option value="barnesHut">barnesHut</option>
                             </select>
                             <button class="btn ghost" id="btn-play-stop" onclick="toggleAlgorithm()">⏸ Stop Algorithm</button>
                         </div>
@@ -643,12 +655,30 @@
                 btn.classList.add('stopped');
             }
         }
+        // ================= FISICA: PLAY / STOP + SOLVER CONFIGS =================
+        // Parametri aggressivi anti-ammassamento per grafi densi: il solver
+        // selezionato nel pannello Fisica applica dinamicamente il suo blocco.
+        const PHYSICS_CONFIGS = {
+            barnesHut: { solver: 'barnesHut',
+                barnesHut: { gravitationalConstant: -8000, centralGravity: 0.15,
+                             springLength: 120, springConstant: 0.04, avoidOverlap: 0.5 } },
+            forceAtlas2Based: { solver: 'forceAtlas2Based',
+                forceAtlas2Based: { gravitationalConstant: -150, centralGravity: 0.01,
+                                    springLength: 100, springConstant: 0.08, avoidOverlap: 0.5 } }
+        };
+        function physicsOptions() {
+            const s = document.getElementById('physics-solver').value;
+            return Object.assign(
+                { enabled: true, stabilization: { iterations: 250, updateInterval: 25 } },
+                PHYSICS_CONFIGS[s]);
+        }
         function bindPhysicsControls() {
             document.getElementById('physics-solver').onchange = function () {
                 if (!network) return;
                 if (!algorithmPlaying) toggleAlgorithm();
-                network.setOptions({ physics: { enabled: true, solver: this.value } });
+                network.setOptions({ physics: physicsOptions() });
                 network.stabilize(200);
+                console.log('[Arachne] solver cambiato:', this.value, PHYSICS_CONFIGS[this.value]);
             };
         }
 
@@ -667,16 +697,17 @@
 
             const nbs = [];
             currentEdges.forEach(e => {
-                if (e.source === nodeId) nbs.push({ arrow: '→', rel: e.relation, name: nodeLabelMap[e.target] || e.target });
-                else if (e.target === nodeId) nbs.push({ arrow: '←', rel: e.relation, name: nodeLabelMap[e.source] || e.source });
+                if (e.source === nodeId) nbs.push({ arrow: '→', rel: e.relation, id: e.target, name: nodeLabelMap[e.target] || e.target });
+                else if (e.target === nodeId) nbs.push({ arrow: '←', rel: e.relation, id: e.source, name: nodeLabelMap[e.source] || e.source });
             });
             const ctxBox = document.getElementById('node-context-box');
             const rows = nbs.slice(0, 14).map(n =>
-                `<div class="ctx-edge"><span class="ctx-rel">${n.arrow} ${n.rel}</span> ${n.name}</div>`).join('');
+                `<div class="ctx-edge" onclick="focusOnNode('${n.id}')"><span class="ctx-rel">${n.arrow} ${n.rel}</span> ${n.name}</div>`).join('');
             ctxBox.innerHTML = `
+                <button class="ctx-close" onclick="closeCtxBox()" title="Chiudi">[X]</button>
                 <div class="ctx-title">${node.label || node.id}</div>
                 <div class="ctx-sub">${nbs.length} connessioni dirette · relazioni SVO</div>
-                ${rows || '<div class="ctx-edge">nessun vicino nel canvas corrente</div>'}`;
+                ${rows || '<div class="ctx-edge" style="cursor:default">nessun vicino nel canvas corrente</div>'}`;
             if (domPos) {
                 const wrap = document.getElementById('graph-panel-wrap');
                 const x = Math.min(domPos.x + 18, wrap.clientWidth - 262);
@@ -685,6 +716,10 @@
                 ctxBox.style.top = y + 'px';
                 ctxBox.style.display = 'block';
             }
+        }
+
+        function closeCtxBox() {
+            document.getElementById('node-context-box').style.display = 'none';
         }
 
         function focusOnNode(nid) {
@@ -783,12 +818,7 @@
                         4: { color: { background: '#fbbf24', border: '#fde68a' } },
                         5: { color: { background: '#818cf8', border: '#c7d2fe' } }
                     },
-                    physics: {
-                        enabled: true,
-                        solver: solver,
-                        barnesHut: { gravitationalConstant: -3000, centralGravity: 0.3, springLength: 95 },
-                        stabilization: { iterations: 250, updateInterval: 25 }
-                    },
+                    physics: physicsOptions(),
                     interaction: { hover: true, tooltipDelay: 150, dragView: true, dragNodes: true }
                 };
                 network = new vis.Network(container, { nodes: currentNodes, edges: visEdges }, options);

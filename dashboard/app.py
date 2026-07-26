@@ -76,11 +76,14 @@ def close_run(rid, graph_json=None, status="done"):
     conn.close()
 
 
-def wipe_dir(path):
-    """Svuota una directory senza rimuoverla (fix residui tra sessioni)."""
+def wipe_dir(path, ignore=frozenset()):
+    """Svuota una directory senza rimuoverla. `ignore` contiene nomi da preservare
+    (es. 'runs': lo storico dei grafi NON deve mai essere cancellato)."""
     if not os.path.isdir(path):
         return
     for name in os.listdir(path):
+        if name in ignore:
+            continue
         p = os.path.join(path, name)
         if os.path.isdir(p) and not os.path.islink(p):
             shutil.rmtree(p, ignore_errors=True)
@@ -111,10 +114,11 @@ def system_check():
 @app.post("/api/upload")
 async def upload_files(files: list[UploadFile] = File(...), lang: str = Form("en")):
     # FIX PERSISTENZA: nessun residuo da sessioni precedenti. Prima di salvare
-    # i nuovi PDF si svuotano input, markdown convertiti e vecchi output.
+    # i nuovi PDF si svuotano input e markdown convertiti. graph_out viene
+    # pulito MA la sottocartella runs/ (storico progetti) e' preservata.
     wipe_dir(PDF_DIR)
     wipe_dir(MD_DIR)
-    wipe_dir(OUT_DIR)
+    wipe_dir(OUT_DIR, ignore=frozenset({"runs"}))
     os.makedirs(RUNS_DIR, exist_ok=True)
 
     with open(LANG_FILE, "w") as lf:
