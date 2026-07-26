@@ -225,7 +225,13 @@
 </div>
 <script>
     const { UndirectedGraph } = window.graphology;
-    const { ForceAtlas2Layout } = window.graphologyForceAtlas2;
+    let ForceAtlas2Layout = null;
+    if (window.graphologyForceAtlas2 && window.graphologyForceAtlas2.ForceAtlas2Layout) {
+        ForceAtlas2Layout = window.graphologyForceAtlas2.ForceAtlas2Layout;
+    } else if (window.graphologyLibrary && typeof window.graphologyLibrary.layoutForceAtlas2 === 'function') {
+        ForceAtlas2Layout = window.graphologyLibrary.layoutForceAtlas2;
+    }
+    if (!ForceAtlas2Layout) console.warn('[Arachne] ForceAtlas2 non trovato — il layout sarà disabilitato. Verifica il CDN graphology-layout-forceatlas2.');
     let sigma = null, graph = null, layout = null, nodeLabelMap = {}, currentEdges = [], currentFiltered = [], algorithmPlaying = true;
 
     fetch('/api/system-check').then(r=>r.json()).then(data=>{
@@ -272,6 +278,7 @@
     function downloadExport(fmt){ window.location.href=`/api/export/${fmt}?scope=`+(document.getElementById('export-scope').checked?'hub':'all'); }
 
     async function renderGraph(){
+        currentEdges = []; currentFiltered = []; nodeLabelMap = {};
         try{ console.log('[Arachne] renderGraph...'); const res=await fetch('/api/graph'); if(!res.ok)throw new Error('HTTP '+res.status); const data=await res.json(); console.log('[Arachne] payload:',data.nodes.length,'nodi,',(data.edges||[]).length,'archi');
             const MAX=400; let filtered=data.nodes.filter(n=>(n.metrics?.degree??0)>0); filtered.sort((a,b)=>(b.metrics?.betweenness??0)-(a.metrics?.betweenness??0)); if(filtered.length>MAX)filtered=filtered.slice(0,MAX); const keep=new Set(filtered.map(n=>n.id)); currentEdges=(data.edges||[]).filter(e=>keep.has(e.source)&&keep.has(e.target)); currentFiltered=filtered; nodeLabelMap={}; filtered.forEach(n=>{nodeLabelMap[n.id]=n.label;});
             const notice=document.getElementById('graph-notice'); if(notice&&filtered.length<data.nodes.length){ notice.textContent=`⚡ ${filtered.length} nodi centrali su ${data.nodes.length.toLocaleString('it-IT')} (filtro connessione + betweenness).`; notice.style.display='block'; }else notice.style.display='none';
@@ -282,8 +289,15 @@
             currentEdges.forEach(e=>graph.addEdge(e.source,e.target,{label:e.relation,type:'arrow',size:1,color:'rgba(168,85,247,0.45)'}));
             document.getElementById('mynetwork').innerHTML='';
             sigma=new Sigma(graph,document.getElementById('mynetwork'),{renderEdgeLabels:true,defaultEdgeType:'arrow',labelFont:'Inter',labelSize:13,edgeLabelFont:'JetBrains Mono',edgeLabelSize:9,stagePadding:30,labelColor:{color:'#e9e4f5'},defaultEdgeColor:'rgba(168,85,247,0.35)',minCameraRatio:0.1,maxCameraRatio:10});
-            layout=new ForceAtlas2Layout(graph,{settings:{gravity:.2,scalingRatio:10,slowDown:10,outboundAttractionDistribution:true,edgeWeightInfluence:0}}); layout.start(); algorithmPlaying=true; document.getElementById('btn-play-stop').textContent='⏸ Stop Algorithm'; document.getElementById('btn-play-stop').classList.remove('stopped');
-            setTimeout(()=>{if(algorithmPlaying){toggleAlgorithm();console.log('[Arachne] stabilizzazione completata: pausa automatica');}},12000);
+            layout = null;
+            if (ForceAtlas2Layout) {
+                layout = new ForceAtlas2Layout(graph,{settings:{gravity:.2,scalingRatio:10,slowDown:10,outboundAttractionDistribution:true,edgeWeightInfluence:0}});
+                layout.start(); algorithmPlaying = true; document.getElementById('btn-play-stop').textContent = '⏸ Stop Algorithm'; document.getElementById('btn-play-stop').classList.remove('stopped');
+                setTimeout(() => { if(algorithmPlaying){ toggleAlgorithm(); console.log('[Arachne] stabilizzazione completata: pausa automatica'); } }, 12000);
+            } else {
+                document.getElementById('btn-play-stop').textContent = '⚠ Layout non disponibile';
+                document.getElementById('btn-play-stop').disabled = true;
+            }
             sigma.on('clickNode',({node,event})=>{if(node){showNodeInfo(node,{x:event.clientX,y:event.clientY});}else{closeCtxBox();document.getElementById('node-details').innerHTML='<p class="sidebar-placeholder">Clicca su un nodo del grafo per ispezionarne le metriche topologiche.</p>';}});
             sigma.on('clickStage',()=>{closeCtxBox();});
             console.log('[Arachne] Sigma.js+ForceAtlas2: pronto,',filtered.length,'nodi,',currentEdges.length,'archi');
