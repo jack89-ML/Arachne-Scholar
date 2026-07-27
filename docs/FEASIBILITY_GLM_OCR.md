@@ -106,23 +106,42 @@ non un sostituto.
 - Probe reale su 192.168.1.89: `Tesla P4, 7680MB, tier 2, layout cpu,
   probe nvidia-smi` — esattamente il Tier 2 previsto.
 
-## 8. Deploy del backend GLM-OCR (prossimo passo, NON ancora eseguito)
+## 8. Deploy del backend GLM-OCR (ESEGUITO 2026-07-27)
 
-```bash
-# su 192.168.1.89
-ollama pull glm-ocr:latest
-python3.12 -m venv /tmp/glmocr_venv
-/tmp/glmocr_venv/bin/pip install "glmocr[layout]"   # torch CPU ok
-# settings.json del repo:
-#   "ocr_mode": "auto",
-#   "glmocr_bin": "/tmp/glmocr_venv/bin/glmocr",
-#   "glmocr_config": "/tmp/arachne_prod/Arachne-Scholar/glmocr_config.yaml"
-# glmocr_config.yaml: backend ollama_generate @ localhost:11434
-```
+Stato reale su 192.168.1.89:
 
-Smoke test di validazione prima di abilitare `auto` in prod:
-1. `glmocr parse <pdf accademico> --layout-device cpu` su PDF campione
-   multi-colonna con note.
-2. Confronto SVO: stesso corpus, grafo con MD classico vs MD GLM-OCR
-   (atteso: meno nodi-spazzatura da boilerplate/sillabazioni).
-3. Monitorare `VRAM` nella top-bar durante l'ingestione.
+- `ollama pull glm-ocr:latest` → OK (2.2GB, container Docker `ollama`)
+- venv `/tmp/glmocr_venv` (py3.12, torch 2.13.0+cpu, glmocr 0.1.5,
+  transformers 5.14.1) — creato con `python3 -m venv --without-pip` +
+  get-pip.py (host senza python3.12-venv / ensurepip)
+- `glmocr_config.yaml` nel repo root prod: backend `ollama_generate` @
+  localhost:11434, layout `PaddlePaddle/PP-DocLayoutV3_safetensors`
+- `settings.json` prod: `ocr_mode=auto`, `glmocr_bin`, `glmocr_config`,
+  `glmocr_timeout=7200`
+- Endpoint live: `glmocr_available: true` su http://192.168.1.89:8001
+
+### Pitfall trovati in produzione (reali, non teorici)
+
+1. **Il config custom SOSTITUISCE i default SDK**: senza
+   `page_loader.task_prompt_mapping` nel nostro yaml, il prompt OCR era
+   vuoto → output = soli marker markdown ("# ", "## ", "$$") senza testo.
+   Fix: ridichiarare text/table/formula ("Text Recognition:" ecc.).
+2. **ensurepip assente sull'host**: `python3 -m venv` fallisce →
+   `--without-pip` + `get-pip.py`.
+3. **Timeout OCR**: un paper denso di 15 pag. (tabelle+formule) richiede
+   **>30 min** su P4 (ogni regione tabellare genera 2000-3000 token a
+   ~75 tok/s, slot Ollama serializzato). Default `glmocr_timeout` alzato
+   1800 → **7200s**.
+4. **ensurepip/timing a parte**, il primo run E2E (run #4) ha dimostrato:
+   slicer anti-OOM OK (22 slice, trf gpu=True, zero Axis mismatch) e
+   fallback PyMuPDF funzionante (sanitize: 75 numeri pagina, 252
+   header/footer rimossi).
+
+### Misurazioni reali (Tesla P4, glm-ocr via Ollama)
+
+| Metrica | Valore |
+|---|---|
+| Throughput VLM | ~70-82 tok/s |
+| VRAM totale con glm-ocr residente | 3119 MiB / 7680 MiB |
+| Tempo OCR paper 15 pag. (denso) | 30-45 min |
+| Tempo OCR pagina singola (test diretto) | ~20-30s |
