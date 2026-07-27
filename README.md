@@ -1,18 +1,51 @@
 # Arachne Scholar 🕷️
-
-**Local-first Knowledge Graph Engine for Academic Literature** — dai PDF alla mappa epistemica, tutto in locale.
+### Deterministic Knowledge Graph Engine for Agentic RAG
 
 ![Version](https://img.shields.io/badge/version-0.2.0-a855f7) ![Docker](https://img.shields.io/badge/docker-compose%20ready-22d3ee) ![Python](https://img.shields.io/badge/python-%E2%89%A53.10-4ade80) ![OCR](https://img.shields.io/badge/OCR-GLM--OCR%20via%20Ollama-fbbf24)
 
 ---
 
-## 🎯 Obiettivo del progetto
+## 🎯 L'Obiettivo: Knowledge Base a Costo Zero, su Hardware Consumer
 
-Arachne trasforma una collezione di paper accademici in un **grafo di conoscenza
-interrogabile**: estrae concetti, autori e relazioni SVO (Soggetto-Verbo-Oggetto)
-e calcola metriche di rete (betweenness, community, structural holes) per
-mostrare *come* le idee si connettono — non solo *di cosa* parlano.
-Nessun cloud, nessun servizio esterno: tutto gira sulla tua macchina.
+Costruire una pipeline **100% locale e gratuita**: nessuna chiamata ad API
+esterne a pagamento, nessun token meter, nessun dato che lascia la macchina.
+Il sistema è progettato per girare fluentemente su **hardware consumer a basso
+costo e basso consumo** — una GPU da 8/12 GB di VRAM è sufficiente per
+l'intero workflow, dalla pagina rasterizzata al grafo finale.
+
+Arachne trasforma complessi PDF accademici in una **Knowledge Base solida e
+versionabile** (`graph.json`): nodi tipizzati (concetti, autori, istituzioni),
+archi relazionali, metriche di rete già calcolate. Un artefatto pronto per
+l'**Agentic RAG**: perfettamente navigabile da interfacce come Graphify e dai
+moderni CLI Agent, che possono ragionare sulla struttura causale del corpus
+invece che su sacchetti di chunk testuali.
+
+## 🧭 Il Manifesto Deterministico: SpaCy, non LLM
+
+Per l'estrazione delle relazioni SVO (Subject-Verb-Object) **non usiamo un
+LLM, e la ragione è epistemologica prima ancora che tecnica.**
+
+Gli LLM sono macchine **probabilistiche**: campionano da distribuzioni,
+cambiano risposta al variare del seed e del contesto, e sono strutturalmente
+inclini all'allucinazione. Un grafo di conoscenza estratto da un LLM è un
+artefatto *non replicabile*: rieseguilo domani e otterrai nodi e relazioni
+diversi. Per la ricerca accademica questo è inaccettabile — un dato che non si
+riproduce non è un dato, è un'aneddotica.
+
+Arachne separa nettamente **percezione** e **ragionamento**:
+
+- **L'OCR visivo (GLM-OCR) ha un solo compito meccanico**: *leggere* i pixel
+  della pagina e trascriverli in testo. Nient'altro.
+- **L'estrazione logica è affidata ai trasformatori NLP di SpaCy**: parsing
+  sintattico a dipendenze, POS tagging e dependency traversal sono calcolo
+  **matematico, geometrico e sintattico** del linguaggio naturale — non
+  campionamento.
+
+Lo stesso PDF produce **sempre lo stesso grafo**: stessa entità, stessa
+relazione, stessa metrica. Il risultato è una **mappa causale del pensiero
+umano** — deterministica, esatta e rigorosamente replicabile — su cui si può
+fare scienza: confronti longitudinali, studi di structural holes, revisione
+paritaria dei risultati.
 
 ## ⚙️ Cosa fa e come funziona
 
