@@ -608,21 +608,46 @@ def extract_cowindow_edges(doc, entities, window=5, max_per_window=12):
     return edges
 
 
-def chunk_text(text, max_chars=50_000):
+def chunk_text(text, max_chars=1_800):
+    """(FIX OOM 'Axis dimension mismatch') Safety slicer: NESSUN blocco puo'
+    superare max_chars. Gerarchia di taglio per non tranciare le frasi:
+    1) paragrafi "\\n\\n" -> 2) frasi (dopo .!?) -> 3) hard-cut sull'ultimo
+    spazio utile (solo per frasi mostruose senza punteggiatura).
+    Il vecchio max_chars=50_000 + split solo-paragrafi lasciava passare
+    paragrafi singoli giganteschi (post-sanitize/OCR) che mandavano il
+    parser in mismatch dimensionale."""
     # (FIX) Ricongiunge parole spezzate dalla sillabazione giustificata PDF
     # (es. "soci-\nology" -> "sociology"). Applicato PRIMA del chunking.
     text = re.sub(r"-\s*\n\s*", "", text)
     if len(text) <= max_chars:
-        return [text]
+        return [text] if text.strip() else []
     chunks, current = [], ""
-    for para in text.split("\n\n"):
-        if len(current) + len(para) > max_chars and current:
+
+    def flush():
+        nonlocal current
+        if current.strip():
             chunks.append(current)
-            current = para
-        else:
-            current = current + "\n\n" + para if current else para
-    if current:
-        chunks.append(current)
+        current = ""
+
+    for para in text.split("\n\n"):
+        para = para.strip()
+        if not para:
+            continue
+        # livello 2: paragrafo lungo -> unita' di frase (punto conservato)
+        units = [para] if len(para) <= max_chars else re.split(r"(?<=[.!?])\s+", para)
+        for u in units:
+            # livello 3: frase ancora troppo lunga -> hard-cut su spazio
+            while len(u) > max_chars:
+                flush()
+                cut = u.rfind(" ", 0, max_chars)
+                if cut < max_chars // 2:
+                    cut = max_chars
+                chunks.append(u[:cut])
+                u = u[cut:].lstrip()
+            if len(current) + len(u) + 1 > max_chars and current:
+                flush()
+            current = (current + " " + u) if current else u
+    flush()
     return chunks
 
 
