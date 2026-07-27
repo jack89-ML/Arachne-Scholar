@@ -187,7 +187,7 @@ def system_check():
 @app.get("/api/system/hardware")
 def system_hardware():
     """Diagnostica hardware dinamica: GPU attiva, VRAM totale/usata/libera,
-    tier OCR (1=full-GPU, 2=ibrido layout-CPU, 3=PyMuPDF+sanitize).
+    tier informativo (1/2=OCR diretto via Ollama, 3=PyMuPDF+sanitize).
     Mai 5xx: in assenza di probe risponde comunque con un tier 3 sicuro."""
     force_cpu = False
     if os.path.exists(SETTINGS_FILE):
@@ -198,16 +198,18 @@ def system_hardware():
     if probe_hardware is None:
         return {"gpu_present": False, "gpu_name": None, "tier": 3,
                 "tier_label": "TIER 3 - PyMuPDF + sanitizzazione regex",
-                "layout_device": None, "probe_source": "none",
-                "glmocr_available": False, "force_cpu": force_cpu,
+                "probe_source": "none", "ocr_available": False,
+                "ollama_url": None, "ocr_model": None,
+                "force_cpu": force_cpu,
                 "error": "hardware_probe non importabile"}
     try:
         hw = probe_hardware()
     except Exception as e:
         return {"gpu_present": False, "gpu_name": None, "tier": 3,
                 "tier_label": "TIER 3 - PyMuPDF + sanitizzazione regex",
-                "layout_device": None, "probe_source": "error",
-                "glmocr_available": False, "force_cpu": force_cpu,
+                "probe_source": "error", "ocr_available": False,
+                "ollama_url": None, "ocr_model": None,
+                "force_cpu": force_cpu,
                 "error": str(e)}
     hw["force_cpu"] = force_cpu
     return hw

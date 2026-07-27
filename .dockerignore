@@ -1,0 +1,12 @@
+.git
+__pycache__
+**/__pycache__
+*.pyc
+data/
+graph_out/
+settings.json
+pipeline.lang
+*.log
+.venv
+venv/
+docs/

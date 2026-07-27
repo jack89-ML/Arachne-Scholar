@@ -1,29 +1,64 @@
+# Arachne Scholar — architettura minimale a 2 container.
+#
+#   ollama   -> motore OCR (glm-ocr) con passthrough GPU
+#   backend  -> FastAPI + SpaCy SVO + rasterizzatore PDF (CPU, parla a
+#               http://ollama:11434 via DNS interno)
+#
+# Prerequisito una tantum (modello OCR nel volume ollama_models):
+#   docker compose up -d ollama
+#   docker exec arachne-ollama ollama pull glm-ocr
+#
+# Variante consigliata a contesto 16k (pagina intera ~6k token visivi):
+#   curl -X POST http://localhost:11434/api/create -H 'Content-Type: application/json' -d \
+#     '{"model":"glm-ocr-16k","from":"glm-ocr:latest","parameters":{"num_ctx":16384},"stream":false}'
+# (opzionale: il backend forza gia' options.num_ctx=16384 per richiesta,
+#  quindi funziona anche il tag glm-ocr:latest puro)
+#
+# GPU: richiede NVIDIA Container Toolkit (Linux) o Docker Desktop + WSL2
+# (Windows). Senza GPU, eliminare il blocco deploy: l'OCR gira su CPU
+# (lento ma funzionante).
+
 services:
-  arachne:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: arachne-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_NUM_CTX=16384
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  backend:
     build:
       context: .
-      # Per build GPU (NVIDIA Container Toolkit richiesto):
-      #   docker compose build --build-arg INSTALL_GPU=true
       args:
         INSTALL_GPU: ${INSTALL_GPU:-false}
     image: arachne-scholar:latest
-    container_name: arachne-scholar
+    container_name: arachne-backend
     ports:
       - "8000:8000"
     volumes:
       - arachne_data:/app/data
     environment:
-      # Trasparenza CPU/GPU: con toolkit NVIDIA attivo impostare
-      # NVIDIA_VISIBLE_DEVICES=all e decommentare il blocco deploy sotto.
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-none}
+      # Il backend raggiunge Ollama via DNS interno della rete compose.
+      - OLLAMA_BASE_URL=http://ollama:11434
+      # Override opzionali:
+      # - OLLAMA_OCR_MODEL=glm-ocr-16k
+      # - ARACHNE_OCR_MODE=auto        # auto | ollama | classic
+    depends_on:
+      - ollama
     restart: unless-stopped
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
 
 volumes:
+  ollama_models:
   arachne_data:

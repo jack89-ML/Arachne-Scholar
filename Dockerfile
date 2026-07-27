@@ -1,4 +1,6 @@
-# Arachne Scholar — Immagine di produzione (CPU di default, GPU opzionale)
+# Arachne Scholar — Backend (FastAPI + SpaCy SVO + ingest OCR diretto via Ollama)
+# L'OCR NON vive in questa immagine: il backend parla HTTP al container ollama
+# (vedi docker-compose.yml). Niente SDK glmocr, niente layout detector.
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -6,23 +8,28 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Dipendenze core (py3.11: wheel precompilate per tutto lo stack, niente build Rust)
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY dashboard ./dashboard
 
 RUN pip install --upgrade pip \
-    && pip install . pymupdf python-multipart
+    && pip install . python-multipart
 
-# Extra GPU (opzionale): pip install .[gpu]  — richiede toolkit CUDA sull'host.
-# Abilitare con: docker build --build-arg INSTALL_GPU=true .
+# SpaCy trf (EN) richiede spacy-transformers -> torch. Di default torch CPU:
+# immagine leggera e portabile (l'OCR gira sul container ollama, non qui).
+# Per GPU nel backend (non necessaria): docker build --build-arg INSTALL_GPU=true .
 ARG INSTALL_GPU=false
 RUN if [ "$INSTALL_GPU" = "true" ]; then \
-        pip install '.[gpu]' || echo '[warn] extra GPU non installato, continuo in CPU'; \
+        pip install torch spacy-transformers; \
+    else \
+        pip install torch --index-url https://download.pytorch.org/whl/cpu \
+        && pip install spacy-transformers; \
     fi
 
-# Modello NLP inglese precaricato (transformer, default); IT/ES scaricati on-demand
-RUN python -m spacy download en_core_web_trf
+# Modelli NLP precaricati: EN transformer (default), IT/ES large.
+RUN python -m spacy download en_core_web_trf \
+    && python -m spacy download it_core_news_lg \
+    && python -m spacy download es_core_news_lg
 
 EXPOSE 8000
 
