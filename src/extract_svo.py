@@ -504,8 +504,11 @@ def nid_for_span(token, entities):
 
 
 def extract_svo_edges(doc, entities):
-    """Dependency parsing: triple (soggetto, verbo, oggetto) con etichette verbali."""
+    """Dependency parsing: triple (soggetto, verbo, oggetto) con etichette verbali.
+    Ritorna (edges, passages): passages mappa ogni tripla alla prima frase
+    sorgente da cui la relazione e' stata estratta (troncata, per ispezione UI)."""
     edges = Counter()
+    passages = {}
     for sent in doc.sents:
         for tok in sent:
             if tok.pos_ != "VERB":
@@ -543,8 +546,12 @@ def extract_svo_edges(doc, entities):
             if subj_nid:
                 for tgt in obj_nids:
                     if tgt != subj_nid:
-                        edges[(subj_nid, tgt, lemma)] += 1
-    return edges
+                        key = (subj_nid, tgt, lemma)
+                        edges[key] += 1
+                        if key not in passages:
+                            passage = " ".join(sent.text.split())
+                            passages[key] = passage[:400]
+    return edges, passages
 
 
 def extract_cochunk_edges(doc, entities, max_per_sent=5):
@@ -624,6 +631,7 @@ def process_file(path, nlp, window_size=5):
         text = f.read()
 
     entities, svo_edges, co_edges = {}, Counter(), Counter()
+    svo_passages = {}
     freq = Counter()
     pieces = chunk_text(text)
     t0 = time.time()
@@ -631,13 +639,16 @@ def process_file(path, nlp, window_size=5):
     for i, piece in enumerate(pieces):
         for doc in nlp.pipe([piece], batch_size=32):
             entities = extract_entities(doc, entities, freq)
-            svo_edges.update(extract_svo_edges(doc, entities))
+            svo, passages = extract_svo_edges(doc, entities)
+            svo_edges.update(svo)
+            for k, v in passages.items():
+                svo_passages.setdefault(k, v)
             co_edges.update(extract_cowindow_edges(doc, entities, window=window_size))
         elapsed = time.time() - t0
         print(f"    [{i+1}/{len(pieces)}] {len(entities)} entità, "
               f"{len(svo_edges)} SVO, {elapsed:.0f}s", file=sys.stderr)
 
-    return entities, svo_edges, co_edges, freq
+    return entities, svo_edges, co_edges, freq, svo_passages
 
 
 def main():
@@ -662,14 +673,17 @@ def main():
         sys.exit(1)
 
     all_entities, all_svo, all_co, all_freq = {}, Counter(), Counter(), Counter()
+    all_passages = {}
 
     for fp in md_files:
         print(f"\n=== {os.path.basename(fp)[:70]} ===", file=sys.stderr)
-        ents, svo, co, fq = process_file(fp, nlp, window_size=args.window_size)
+        ents, svo, co, fq, passages = process_file(fp, nlp, window_size=args.window_size)
         all_entities.update(ents)
         all_svo.update(svo)
         all_co.update(co)
         all_freq.update(fq)
+        for k, v in passages.items():
+            all_passages.setdefault(k, v)
 
     # Archi SVO: soglia >=1, etichetta verbale reale
     links, seen = [], set()
@@ -677,11 +691,15 @@ def main():
         if (src, tgt, rel) in seen:
             continue
         seen.add((src, tgt, rel))
-        links.append({
+        link = {
             "source": src, "target": tgt, "relation": rel,
             "weight": min(count, 5),
             "confidence": "extracted" if count >= 2 else "inferred",
-        })
+        }
+        passage = all_passages.get((src, tgt, rel))
+        if passage:
+            link["passage"] = passage
+        links.append(link)
 
     # (B) co_occur: soglia co_threshold (default 2, come il vecchio prototipo),
     # peso calibrato min(c,5), confidence graduata extracted>=3 / inferred=2

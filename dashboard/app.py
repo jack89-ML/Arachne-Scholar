@@ -322,9 +322,10 @@ def get_graph():
             seen_pairs.add(key)
             e.setdefault("relation", "")
             clean_edges.append(e)
-        out = {"nodes": clean_nodes, "edges": clean_edges}
+        out: dict = {"nodes": clean_nodes, "edges": clean_edges}
         if isinstance(data.get("meta"), dict):
             out["meta"] = data["meta"]
+        out["active_run_id"] = _get_active_run()
         return JSONResponse(content=out)
     except Exception:
         return JSONResponse(content=empty)
@@ -424,21 +425,29 @@ def activate_run(run_id: int):
 
 @app.delete("/api/projects/{run_id}")
 async def delete_project(run_id: int):
-    """Elimina un progetto: record DB + archivio grafo. I file live vengono
-    rimossi SOLO se il progetto eliminato e' quello attivo (tracciato via
-    active_run.txt): cancellare un progetto non aperto non svuota piu' la
-    dashboard. Gestisce anche gli archivi orfani senza record DB."""
+    """ELIMINAZIONE ATOMICA di un progetto, in un'unica transazione logica:
+    1. record SQLite rimosso dalla tabella runs;
+    2. archivio grafo (run_{id}_graph.json) rimosso dal disco;
+    3. se era il progetto attivo, stato live resettato (graph.json,
+       graph_with_metrics.json, active_run.txt).
+    Gestisce anche gli archivi orfani senza record DB."""
     conn = db()
-    row = conn.execute("SELECT id FROM runs WHERE id = ?", (run_id,)).fetchone()
-    if row:
-        conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
-        conn.commit()
-    conn.close()
+    try:
+        row = conn.execute("SELECT id FROM runs WHERE id = ?", (run_id,)).fetchone()
+        if row:
+            conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+            conn.commit()
+    finally:
+        conn.close()
     archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
     had_archive = os.path.exists(archive)
     if had_archive:
-        os.remove(archive)
-    if _get_active_run() == run_id:
+        try:
+            os.remove(archive)
+        except OSError:
+            pass
+    was_active = _get_active_run() == run_id
+    if was_active:
         for fname in ["graph.json", "graph_with_metrics.json"]:
             p = os.path.join(OUT_DIR, fname)
             if os.path.exists(p):
@@ -452,7 +461,7 @@ async def delete_project(run_id: int):
             pass
     if not row and not had_archive:
         return JSONResponse(status_code=404, content={"error": f"Progetto #{run_id} non trovato."})
-    return {"status": "deleted", "run_id": run_id}
+    return {"status": "deleted", "run_id": run_id, "was_active": was_active}
 
 
 # ------------------------------------------------------------- settings API
@@ -553,3 +562,251 @@ def export_gexf(scope: str = "all"):
 @app.get("/api/export/graphml")
 def export_graphml(scope: str = "all"):
     return _export("graphml", scope)
+
+
+# ===========================================================================
+# EXPORT HUB -- artefatti per-progetto (memoria analitica)
+# ===========================================================================
+WEB_CACHE_DIR = os.path.join(DATA_DIR, ".web_cache")
+os.makedirs(WEB_CACHE_DIR, exist_ok=True)
+
+VIEW_LIBS = {
+    "graphology": "https://unpkg.com/graphology/dist/graphology.umd.min.js",
+    "sigma": "https://unpkg.com/sigma/build/sigma.min.js",
+    "forceatlas2": "https://unpkg.com/graphology-layout-forceatlas2/build/graphology-layout-forceatlas2.min.js",
+}
+
+
+def _load_run_graph(run_id):
+    """Carica e valida il grafo archiviato di un progetto. Ritorna il dict
+    JSON oppure None se assente/corrotto."""
+    archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
+    if not _is_valid_graph_file(archive):
+        return None
+    try:
+        with open(archive, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _nx_from_data(data):
+    """Costruisce un DiGraph networkx dal JSON di un run (nodi+metriche+archi)."""
+    import networkx as nx
+    G = nx.DiGraph()
+    for n in data.get("nodes", []):
+        m = n.get("metrics", {}) or {}
+        G.add_node(n["id"], label=str(n.get("label", n["id"])),
+                   type=str(n.get("type", "concept")),
+                   degree=float(m.get("degree", 0)),
+                   betweenness=float(m.get("betweenness", 0)),
+                   constraint=float(m.get("constraint", 1.0)),
+                   community=int(m.get("community", 0)))
+    for e in data.get("edges", data.get("links", [])):
+        if e.get("source") in G and e.get("target") in G:
+            G.add_edge(e["source"], e["target"],
+                       relation=str(e.get("relation", "")),
+                       weight=float(e.get("weight", 1)))
+    return G
+
+
+def _fetch_web_lib(name):
+    """Scarica (con cache su disco) una libreria JS per il viewer offline.
+    Ritorna il sorgente JS oppure None se non raggiungibile."""
+    cache = os.path.join(WEB_CACHE_DIR, f"{name}.js")
+    if os.path.exists(cache) and os.path.getsize(cache) > 1000:
+        try:
+            with open(cache, encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            pass
+    try:
+        import urllib.request
+        req = urllib.request.Request(VIEW_LIBS[name],
+                                     headers={"User-Agent": "arachne-scholar/4.0"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            src = r.read().decode("utf-8", errors="replace")
+        if len(src) > 1000:
+            with open(cache, "w", encoding="utf-8") as f:
+                f.write(src)
+            return src
+    except Exception:
+        pass
+    return None
+
+
+def _render_view_html(data, title):
+    """Genera graph_view.html: file statico self-contained che impacchetta
+    Graphology+Sigma+ForceAtlas2 (inlinati se scaricabili, altrimenti CDN)
+    e il JSON del grafo, navigabile offline nel browser dell'utente."""
+    libs_inline, libs_cdn = [], []
+    for name, url in VIEW_LIBS.items():
+        src = _fetch_web_lib(name)
+        if src:
+            libs_inline.append(f"/* ==== {name} (inlined) ==== */\n" + src)
+        else:
+            libs_cdn.append(f'<script src="{url}"></script>')
+    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    libs_block = ("\n".join(f"<script>\n{s}\n</script>" for s in libs_inline)
+                  + "\n" + "\n".join(libs_cdn))
+    return VIEW_TEMPLATE.replace("__TITLE__", title) \
+                        .replace("__LIBS__", libs_block) \
+                        .replace("__DATA__", payload)
+
+
+VIEW_TEMPLATE = """<!DOCTYPE html>
+<html lang="it"><head><meta charset="UTF-8">
+<title>__TITLE__</title>
+<style>
+ body{margin:0;background:#0a0612;color:#e2e8f0;font-family:Inter,system-ui,sans-serif;}
+ #g{position:fixed;inset:0;}
+ #hud{position:fixed;top:0;left:0;right:0;padding:10px 16px;background:rgba(10,6,18,.85);
+      backdrop-filter:blur(12px);border-bottom:1px solid rgba(168,85,247,.25);z-index:10;
+      font:13px/1.4 monospace;color:#a855f7;}
+ #hud b{color:#fff;}
+ #info{position:fixed;top:52px;right:12px;width:300px;max-height:80vh;overflow-y:auto;display:none;
+       background:rgba(14,8,26,.94);border:1px solid rgba(34,211,238,.45);border-radius:12px;
+       padding:14px;z-index:20;font-size:12px;}
+ #info h3{margin:0 0 4px;color:#fff;font-size:14px;word-break:break-word;}
+ #info .rel{color:#bb86fc;font-family:monospace;}
+ #info .row{padding:5px 4px;border-bottom:1px solid rgba(168,85,247,.12);cursor:pointer;}
+ #info .row:hover{background:rgba(34,211,238,.12);}
+ #info .passage{font-style:italic;color:#8b7bb8;border-left:2px solid #a855f7;padding-left:8px;margin:6px 0;}
+ #x{float:right;cursor:pointer;color:#f472b6;font-family:monospace;}
+</style></head><body>
+<div id="hud"><b>__TITLE__</b> &mdash; ARACHNE // SCHOLAR offline viewer</div>
+<div id="g"></div><div id="info"></div>
+__LIBS__
+<script>
+const DATA = __DATA__;
+const commColors={0:'#a855f7',1:'#22d3ee',2:'#f472b6',3:'#34d399',4:'#fbbf24',5:'#818cf8'};
+const graph=new graphology.UndirectedGraph();
+const deg={};
+(DATA.edges||[]).forEach(e=>{deg[e.source]=(deg[e.source]||0)+1;deg[e.target]=(deg[e.target]||0)+1;});
+(DATA.nodes||[]).forEach(n=>graph.mergeNode(n.id,{label:n.label||n.id,
+  size:Math.min(28,Math.max(3,Math.sqrt(deg[n.id]||1)*2.2)),
+  color:commColors[(n.metrics&&n.metrics.community)||0]||'#888',
+  x:Math.random()*100,y:Math.random()*100}));
+(DATA.edges||[]).forEach(e=>{if(e.source!==e.target&&graph.hasNode(e.source)&&graph.hasNode(e.target))
+  try{graph.mergeEdge(e.source,e.target,{label:e.relation||'',size:1,color:'rgba(168,85,247,0.4)'});}catch(_){}});
+if(window.graphologyForceAtlas2&&graphologyForceAtlas2.ForceAtlas2Layout){
+  const lay=new graphologyForceAtlas2.ForceAtlas2Layout(graph,{settings:{gravity:.2,scalingRatio:10,slowDown:10}});
+  lay.start(); setTimeout(()=>lay.stop(),9000);
+}
+const sigma=new Sigma(graph,document.getElementById('g'),{renderEdgeLabels:true,
+  labelFont:'Inter',labelSize:12,edgeLabelFont:'monospace',edgeLabelSize:9,
+  labelColor:{color:'#e9e4f5'},defaultEdgeColor:'rgba(168,85,247,0.35)'});
+const labelOf=id=>graph.hasNode(id)?graph.getNodeAttribute(id,'label'):id;
+sigma.on('clickNode',({node})=>{
+  const info=document.getElementById('info');const rows=[];
+  (DATA.edges||[]).forEach(e=>{
+    if(e.source===node)rows.push({a:'&rarr;',e:e,other:e.target});
+    else if(e.target===node)rows.push({a:'&larr;',e:e,other:e.source});});
+  info.innerHTML='<span id="x" onclick="this.parentElement.style.display=\'none\'">[X]</span>'
+    +'<h3>'+labelOf(node)+'</h3><div style="color:#22d3ee;font:10px monospace">'+rows.length+' connessioni</div>'
+    +rows.slice(0,60).map(r=>'<div class="row"><span class="rel">'+r.a+' '+(r.e.relation||'')+'</span> '
+      +labelOf(r.other)+(r.e.passage?'<div class="passage">&laquo;'+r.e.passage+'&raquo;</div>':'')+'</div>').join('');
+  info.style.display='block';
+});
+</script></body></html>"""
+
+
+def _project_name(run_id):
+    conn = db()
+    try:
+        row = conn.execute("SELECT nome_progetto FROM runs WHERE id=?", (run_id,)).fetchone()
+    finally:
+        conn.close()
+    if row and row[0]:
+        return row[0]
+    return f"progetto_{run_id}"
+
+
+def _safe_slug(name):
+    slug = re.sub(r"[^A-Za-z0-9_\-]+", "_", name).strip("_")
+    return slug or "arachne"
+
+
+@app.get("/api/projects/{run_id}/export/json")
+def export_project_json(run_id: int):
+    """graph.json puro del run: memoria analitica grezza per agenti LLM esterni."""
+    archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
+    if not _is_valid_graph_file(archive):
+        return JSONResponse(status_code=404, content={"error": f"Archivio progetto #{run_id} assente o corrotto."})
+    return FileResponse(archive, media_type="application/json",
+                        filename=f"{_safe_slug(_project_name(run_id))}_graph.json")
+
+
+@app.get("/api/projects/{run_id}/export/gexf")
+def export_project_gexf(run_id: int):
+    return _export_project_fmt(run_id, "gexf")
+
+
+@app.get("/api/projects/{run_id}/export/graphml")
+def export_project_graphml(run_id: int):
+    return _export_project_fmt(run_id, "graphml")
+
+
+def _export_project_fmt(run_id, fmt):
+    """GEXF/GraphML puliti e purificati, pronti per l'importazione in Gephi."""
+    data = _load_run_graph(run_id)
+    if data is None:
+        return JSONResponse(status_code=404, content={"error": f"Archivio progetto #{run_id} assente o corrotto."})
+    G = _nx_from_data(data)
+    suffix = f".{fmt}"
+    tmp = os.path.join(tempfile.gettempdir(), f"arachne_run{run_id}{suffix}")
+    import networkx as nx
+    if fmt == "gexf":
+        nx.write_gexf(G, tmp)
+    else:
+        nx.write_graphml(G, tmp)
+    with open(tmp, "r", encoding="utf-8", errors="replace") as tf:
+        raw = tf.read()
+    with open(tmp, "w", encoding="utf-8") as tf:
+        tf.write(purify_xml(raw))
+    return FileResponse(tmp, media_type="application/xml",
+                        filename=f"{_safe_slug(_project_name(run_id))}{suffix}")
+
+
+@app.get("/api/projects/{run_id}/export/view")
+def export_project_view(run_id: int):
+    """graph_view.html: viewer Sigma.js statico self-contained, navigabile offline."""
+    data = _load_run_graph(run_id)
+    if data is None:
+        return JSONResponse(status_code=404, content={"error": f"Archivio progetto #{run_id} assente o corrotto."})
+    name = _project_name(run_id)
+    html = _render_view_html(data, f"{name} — run #{run_id}")
+    tmp = os.path.join(tempfile.gettempdir(), f"arachne_run{run_id}_view.html")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(html)
+    return FileResponse(tmp, media_type="text/html",
+                        filename=f"{_safe_slug(name)}_view.html")
+
+
+@app.get("/api/projects/{run_id}/export/package")
+def export_project_package(run_id: int):
+    """Pacchetto completo: graph.json + .gexf + .graphml + graph_view.html (ZIP)."""
+    import io
+    import zipfile
+    data = _load_run_graph(run_id)
+    if data is None:
+        return JSONResponse(status_code=404, content={"error": f"Archivio progetto #{run_id} assente o corrotto."})
+    import networkx as nx
+    name = _project_name(run_id)
+    slug = _safe_slug(name)
+    G = _nx_from_data(data)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"{slug}_graph.json",
+                   json.dumps(data, ensure_ascii=False, indent=2))
+        for fmt, writer in (("gexf", nx.write_gexf), ("graphml", nx.write_graphml)):
+            tmp = os.path.join(tempfile.gettempdir(), f"arachne_zip_{run_id}.{fmt}")
+            writer(G, tmp)
+            with open(tmp, "r", encoding="utf-8", errors="replace") as tf:
+                z.writestr(f"{slug}.{fmt}", purify_xml(tf.read()))
+        z.writestr(f"{slug}_view.html", _render_view_html(data, f"{name} — run #{run_id}"))
+    buf.seek(0)
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(buf, media_type="application/zip",
+                             headers={"Content-Disposition":
+                                      f'attachment; filename="{slug}_package.zip"'})
