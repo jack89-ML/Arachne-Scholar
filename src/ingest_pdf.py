@@ -211,6 +211,8 @@ def convert_pdf_ollama(pdf_path, out_dir, settings):
         return False
     dpi = int(settings.get("ocr_dpi", 200))
     timeout = int(settings.get("ocr_page_timeout", 600))
+    print(f"[OCR] Backend pronto: {model} @ {base_url} | "
+          f"dpi={dpi}, timeout pagina={timeout}s")
     mat = fitz.Matrix(dpi / 72.0, dpi / 72.0)
 
     doc = fitz.open(pdf_path)
@@ -219,17 +221,18 @@ def convert_pdf_ollama(pdf_path, out_dir, settings):
     for i in range(1, n_pages + 1):
         page = doc.load_page(i - 1)
         png = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB).tobytes("png")
+        print(f"[OCR] Pagina {i}/{n_pages} -> invio a Ollama ({model})...")
         t0 = time.time()
         text = ocr_page_ollama(png, model, base_url, timeout)
         if text:
             pages_md.append(text)
-            print(f"[ollama-ocr] pagina {i}/{n_pages} ok "
-                  f"({time.time() - t0:.0f}s, {len(text)} char)")
+            print(f"[OCR] Pagina {i}/{n_pages} completata -> estratti "
+                  f"{len(text)} caratteri ({time.time() - t0:.0f}s)")
         else:
             n_native += 1
             pages_md.append(page.get_text("text"))
-            print(f"[ollama-ocr] pagina {i}/{n_pages} FALLITA -> testo "
-                  f"nativo PyMuPDF per questa pagina")
+            print(f"[OCR] Pagina {i}/{n_pages} FALLITA -> fallback su "
+                  f"testo nativo PyMuPDF")
     doc.close()
 
     full = _light_cleanup(strip_boilerplate("\n\n".join(pages_md)))

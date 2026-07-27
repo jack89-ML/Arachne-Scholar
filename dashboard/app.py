@@ -252,6 +252,12 @@ def run_pipeline():
     child_env = os.environ.copy()
     if settings.get("force_cpu"):
         child_env["CUDA_VISIBLE_DEVICES"] = ""
+    # Log real-time nella UI: i figli devono flushare riga per riga.
+    # Senza questo, stdout su pipe = buffer a blocchi 8KB = terminale muto
+    # per tutta l'ingestione (bug UI run #7).
+    child_env["PYTHONUNBUFFERED"] = "1"
+    # Niente spam FutureWarning (thinc/torch) nel terminale dell'utente.
+    child_env["PYTHONWARNINGS"] = "ignore::FutureWarning"
 
     run_id = register_run(lang_code)
     final_graph = os.path.join(OUT_DIR, "graph_with_metrics.json")
@@ -259,9 +265,9 @@ def run_pipeline():
     with open(LOG_FILE, "w") as log:
         log.write(f"Avvio Pipeline Arachne-Scholar (lang={lang_code}, run #{run_id})...\n")
         scripts = [
-            ("Ingestione PDF", f"{sys.executable} {BASE_DIR}/src/ingest_pdf.py {PDF_DIR} {MD_DIR}"),
-            ("Estrazione SVO", f"{sys.executable} {BASE_DIR}/src/extract_svo.py {MD_DIR} {OUT_DIR} {lang_code}"),
-            ("Calcolo Metriche SNA", f"{sys.executable} {BASE_DIR}/src/sna_metrics.py {OUT_DIR}/graph.json {final_graph}"),
+            ("Ingestione PDF", f"{sys.executable} -u {BASE_DIR}/src/ingest_pdf.py {PDF_DIR} {MD_DIR}"),
+            ("Estrazione SVO", f"{sys.executable} -u {BASE_DIR}/src/extract_svo.py {MD_DIR} {OUT_DIR} {lang_code}"),
+            ("Calcolo Metriche SNA", f"{sys.executable} -u {BASE_DIR}/src/sna_metrics.py {OUT_DIR}/graph.json {final_graph}"),
         ]
         try:
             for name, cmd in scripts:
