@@ -25,6 +25,13 @@ LANG_FILE = os.path.join(BASE_DIR, "pipeline.lang")
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
 ACTIVE_FILE = os.path.join(OUT_DIR, "active_run.txt")
 
+# Moduli condivisi con la pipeline (hardware_probe -> /api/system/hardware)
+sys.path.insert(0, os.path.join(BASE_DIR, "src"))
+try:
+    from hardware_probe import probe_hardware
+except Exception:
+    probe_hardware = None
+
 for d in [PDF_DIR, MD_DIR, OUT_DIR, RUNS_DIR]:
     os.makedirs(d, exist_ok=True)
 
@@ -175,6 +182,35 @@ def system_check():
             pass
     return {"gpu_available": gpu, "gpu_name": gpu_name, "graph_exists": graph_exists,
             "force_cpu": force_cpu}
+
+
+@app.get("/api/system/hardware")
+def system_hardware():
+    """Diagnostica hardware dinamica: GPU attiva, VRAM totale/usata/libera,
+    tier OCR (1=full-GPU, 2=ibrido layout-CPU, 3=PyMuPDF+sanitize).
+    Mai 5xx: in assenza di probe risponde comunque con un tier 3 sicuro."""
+    force_cpu = False
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            force_cpu = json.load(open(SETTINGS_FILE)).get("force_cpu", False)
+        except Exception:
+            pass
+    if probe_hardware is None:
+        return {"gpu_present": False, "gpu_name": None, "tier": 3,
+                "tier_label": "TIER 3 - PyMuPDF + sanitizzazione regex",
+                "layout_device": None, "probe_source": "none",
+                "glmocr_available": False, "force_cpu": force_cpu,
+                "error": "hardware_probe non importabile"}
+    try:
+        hw = probe_hardware()
+    except Exception as e:
+        return {"gpu_present": False, "gpu_name": None, "tier": 3,
+                "tier_label": "TIER 3 - PyMuPDF + sanitizzazione regex",
+                "layout_device": None, "probe_source": "error",
+                "glmocr_available": False, "force_cpu": force_cpu,
+                "error": str(e)}
+    hw["force_cpu"] = force_cpu
+    return hw
 
 
 @app.post("/api/upload")

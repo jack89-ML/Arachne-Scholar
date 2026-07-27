@@ -39,6 +39,9 @@
         .status-pill.gpu-on .dot { background:var(--green); box-shadow:0 0 10px var(--green); }
         .status-pill.gpu-idle { border-color:rgba(251,191,36,0.55); color:var(--amber); background:rgba(251,191,36,0.09); box-shadow:0 0 16px rgba(251,191,36,0.30); }
         .status-pill.gpu-idle .dot { background:var(--amber); box-shadow:0 0 10px var(--amber); }
+        .vram-pill { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; padding:6px 12px; border-radius:20px; border:1px solid rgba(34,211,238,0.35); color:var(--cyan); background:rgba(34,211,238,0.06); white-space:nowrap; cursor:default; }
+        .vram-pill.vram-warn { border-color:rgba(251,191,36,0.55); color:var(--amber); background:rgba(251,191,36,0.09); box-shadow:0 0 14px rgba(251,191,36,0.25); }
+        .vram-pill.vram-crit { border-color:rgba(244,114,182,0.55); color:var(--red); background:rgba(244,114,182,0.09); box-shadow:0 0 14px rgba(244,114,182,0.30); }
         @keyframes pulse { 50% { opacity:0.35; } }
 
         .container { max-width:980px; margin:0 auto; padding:34px 20px 60px; }
@@ -189,6 +192,7 @@
 <header class="hud-header">
     <div class="brand"><div class="glyph">🕷</div><h1>ARACHNE <span>//</span> SCHOLAR</h1></div>
     <div class="status-pill"><span class="dot"></span><span id="hdr-status">LINK...</span></div>
+    <span class="vram-pill" id="vram-pill" style="display:none;" title=""></span>
 </header>
 <div class="container" id="main-container">
     <div id="step-1" class="wizard-step active">
@@ -283,6 +287,26 @@
             else { document.getElementById('gpu-status').innerHTML=`🚀 <strong>GPU attiva: ${name}</strong> — pipeline accelerata hardware.`; pill.textContent=`GPU-ACTIVE [${name}]`+(data.graph_exists?' · GRAPH READY':''); pill.classList.add('gpu-on'); }
         } else { document.getElementById('gpu-status').innerHTML='💻 <strong>Modalità CPU</strong> — nessuna GPU rilevata, esecuzione standard.'; pill.textContent='CPU-LINK'+(data.graph_exists?' · GRAPH READY':' · IDLE'); }
     }).catch(()=>{document.getElementById('hdr-status').textContent='OFFLINE';});
+
+    /* Indicatore VRAM real-time: polling /api/system/hardware ogni 5s.
+       Soglie colore: >75% amber, >90% red. Nascosto se nessuna GPU. */
+    function fmtGB(mb){ return (mb/1024).toFixed(1); }
+    async function pollHardware(){
+        const vp=document.getElementById('vram-pill'); if(!vp) return;
+        try{
+            const hw=await(await fetch('/api/system/hardware')).json();
+            if(hw.gpu_present && hw.vram_total_mb){
+                vp.style.display='';
+                vp.textContent=`VRAM ${fmtGB(hw.vram_used_mb)} / ${fmtGB(hw.vram_total_mb)} GB · T${hw.tier}`;
+                vp.title=(hw.gpu_name||'')+' — '+(hw.tier_label||'');
+                vp.classList.remove('vram-warn','vram-crit');
+                const ratio=hw.vram_used_mb/hw.vram_total_mb;
+                if(ratio>0.90) vp.classList.add('vram-crit'); else if(ratio>0.75) vp.classList.add('vram-warn');
+            } else { vp.style.display='none'; }
+        }catch(e){ /* server senza endpoint hardware: resta nascosto */ }
+    }
+    pollHardware(); setInterval(pollHardware,5000);
+
     async function loadSettings(){ try{ const s=await(await fetch('/api/settings')).json(); document.getElementById('nlp-model').value=s.nlp_model||'auto'; const fc=!!s.force_cpu; document.getElementById('force-cpu').checked=fc; document.getElementById('force-cpu-toggle').classList.toggle('on',fc); document.getElementById('force-cpu-label').textContent=fc?'CPU FORZATA':'GPU auto (se disponibile)'; }catch(e){} }
     async function saveSettings(){ try{ await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nlp_model:document.getElementById('nlp-model').value,force_cpu:document.getElementById('force-cpu').checked})}); const dot=document.getElementById('settings-saved'); dot.style.opacity=1; setTimeout(()=>dot.style.opacity=0,1200); }catch(e){} }
     function toggleForceCpu(){ const cb=document.getElementById('force-cpu'); cb.checked=!cb.checked; document.getElementById('force-cpu-toggle').classList.toggle('on',cb.checked); document.getElementById('force-cpu-label').textContent=cb.checked?'CPU FORZATA':'GPU auto (se disponibile)'; saveSettings(); }
