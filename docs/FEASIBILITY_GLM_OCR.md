@@ -1,6 +1,14 @@
 # Fattibilità — Pre-processor PDF→Markdown multimodale (GLM-OCR)
 
-Data: 2026-07-27 · Stato: **FASE 1-3 implementate e testate** · Autore: Hermes
+> ⚠️ **DOCUMENTO STORICO (2026-07-27).** L'approccio via SDK Python `glmocr`
+> (venv dedicato, config yaml, layout detector PP-DocLayout) è stato
+> **abbandonato in produzione** lo stesso giorno: troppo fragile (mapping
+> config, timeout a catena, single-slot lock). L'architettura corrente è
+> **"Zero SDK"**: chiamate HTTP dirette a Ollama pagina-per-pagina
+> (vedi README.md, sezione Architettura). Questo documento resta come
+> riferimento per le misurazioni sulla Tesla P4 e i pitfall incontrati.
+
+Data: 2026-07-27 · Stato: **SUPERSEDED dall'architettura Zero-SDK (v0.2.0)** · Autore: Hermes
 
 ## 1. Obiettivo
 

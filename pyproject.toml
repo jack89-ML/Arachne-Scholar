@@ -4,10 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arachne-scholar"
-version = "0.1.1"
-description = "Local-first Knowledge Graph Engine for Academic Literature via SVO Dependency Parsing"
+version = "0.2.0"
+description = "Local-first Knowledge Graph Engine for Academic Literature — OCR diretto via Ollama (zero SDK) + SVO Dependency Parsing"
 readme = "README.md"
 requires-python = ">=3.10"
+# Dipendenze CORE: tutto cio' che serve alla pipeline PDF->MD->SVO->SNA->HUD.
+# L'OCR NON ha dipendenze Python: il backend parla HTTP a Ollama via urllib
+# (stdlib). Nessun SDK glmocr, nessun layout detector.
 dependencies = [
     "spacy>=3.7.0",
     "fastapi>=0.109.0",
@@ -18,6 +21,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Necessario SOLO per il modello transformer (en_core_web_trf, settings
+# nlp_model=trf). Richiede torch: CPU -> wheel da download.pytorch.org/whl/cpu,
+# GPU -> build CUDA della propria piattaforma. I modelli lg (IT/ES, fallback
+# EN) funzionano con la sola installazione core.
 gpu = [
     "spacy-transformers>=1.3.0"
 ]

@@ -13,7 +13,7 @@ COPY src ./src
 COPY dashboard ./dashboard
 
 RUN pip install --upgrade pip \
-    && pip install . python-multipart
+    && pip install .
 
 # SpaCy trf (EN) richiede spacy-transformers -> torch. Di default torch CPU:
 # immagine leggera e portabile (l'OCR gira sul container ollama, non qui).
