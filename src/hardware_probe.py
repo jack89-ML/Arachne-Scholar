@@ -89,11 +89,21 @@ def _probe_torch():
 
 
 def glmocr_available():
-    """True se l'SDK GLM-OCR e' raggiungibile: binario CLI nel PATH o
-    modulo importabile. Il binario puo' vivere in un venv dedicato
-    (vedi settings.json -> glmocr_bin)."""
+    """True se l'SDK GLM-OCR e' raggiungibile: env GLMOCR_BIN, settings.json
+    (glmocr_bin), binario nel PATH o modulo importabile. Il binario puo'
+    vivere in un venv dedicato (pattern produzione Tier 2)."""
     if os.environ.get("GLMOCR_BIN") and os.path.exists(os.environ["GLMOCR_BIN"]):
         return True
+    try:
+        import json as _json
+        settings_path = os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+            "settings.json")
+        bin_from_settings = _json.load(open(settings_path)).get("glmocr_bin")
+        if bin_from_settings and os.path.exists(bin_from_settings):
+            return True
+    except Exception:
+        pass
     if shutil.which("glmocr"):
         return True
     try:

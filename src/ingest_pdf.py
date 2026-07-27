@@ -175,7 +175,7 @@ def convert_pdf_glmocr(pdf_path, out_dir, layout_device, settings):
         cmd += ["--layout-device", layout_device]
     if cfg:
         cmd += ["--config", cfg]
-    timeout = int(settings.get("glmocr_timeout", 1800))
+    timeout = int(settings.get("glmocr_timeout", 7200))  # P4: ~2-3 min/pagina su paper densi
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if proc.returncode != 0:
