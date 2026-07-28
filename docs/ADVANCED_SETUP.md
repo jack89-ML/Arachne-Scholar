@@ -22,15 +22,21 @@ cd Arachne-Scholar
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-# Modello NLP transformer (EN, qualita' max) — richiede torch:
+# Modelli lg (default nlp_model=auto — NIENTE torch richiesto), pinnati via
+# URL diretto (la lookup di `spacy download nome-x.y.z` e' fragile):
+pip install \
+  https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl \
+  https://github.com/explosion/spacy-models/releases/download/it_core_news_lg-3.8.0/it_core_news_lg-3.8.0-py3-none-any.whl \
+  https://github.com/explosion/spacy-models/releases/download/es_core_news_lg-3.8.0/es_core_news_lg-3.8.0-py3-none-any.whl
+
+# OPZIONALE — transformer EN (nlp_model=trf, qualita' max) — richiede torch:
 pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU-only
 # ...oppure la build CUDA della tua piattaforma (vedi avvertenza sotto)
 pip install -e '.[gpu]'
-python -m spacy download en_core_web_trf
-# Fallback leggeri IT/ES (consigliati):
-python -m spacy download it_core_news_lg es_core_news_lg
+pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_trf-3.8.0/en_core_web_trf-3.8.0-py3-none-any.whl
 
-# Ollama locale con il modello OCR (vedi sez. 2 per OLLAMA_NUM_CTX!)
+# Ollama locale con il modello OCR (vedi sez. 2 per OLLAMA_NUM_CTX!),
+# oppure punta a un Ollama remoto in settings.json: "ollama_base_url"
 ollama pull glm-ocr
 
 uvicorn dashboard.app:app --host 0.0.0.0 --port 8000
