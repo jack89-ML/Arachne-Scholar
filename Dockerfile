@@ -26,14 +26,13 @@ RUN pip install \
     ${SPACY_MODELS_BASE}/it_core_news_lg-3.8.0/it_core_news_lg-3.8.0-py3-none-any.whl \
     ${SPACY_MODELS_BASE}/es_core_news_lg-3.8.0/es_core_news_lg-3.8.0-py3-none-any.whl
 
-# OPZIONALE — modello transformer EN (nlp_model=trf, qualita' max):
-# richiede torch + spacy-transformers. Immagine molto piu' pesante.
+# OPZIONALE — modello transformer EN (nlp_model=trf, qualita' max) + GPU CUDA:
+# torch (build CUDA dai wheel PyPI su Linux), spacy-transformers e cupy
+# pinnati. Richiede runtime nvidia sul host (vedi docker-compose.gpu.yml).
 #   docker compose build --build-arg INSTALL_GPU=true
-# (torch da PyPI = build CUDA su Linux; per torch CPU-only installare a mano
-#  da https://download.pytorch.org/whl/cpu prima di spacy-transformers)
 ARG INSTALL_GPU=false
 RUN if [ "$INSTALL_GPU" = "true" ]; then \
-        pip install torch spacy-transformers \
+        pip install torch spacy-transformers==1.4.0 cupy-cuda12x==14.1.1 \
         && pip install ${SPACY_MODELS_BASE}/en_core_web_trf-3.8.0/en_core_web_trf-3.8.0-py3-none-any.whl; \
     fi
 

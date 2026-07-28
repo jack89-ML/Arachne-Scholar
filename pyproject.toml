@@ -26,12 +26,14 @@ dependencies = [
 
 [project.optional-dependencies]
 # Necessario SOLO per il modello transformer (en_core_web_trf, settings
-# nlp_model=trf). Richiede torch: CPU -> wheel da download.pytorch.org/whl/cpu,
-# GPU -> build CUDA della propria piattaforma (torch NON pinnato qui: la wheel
-# giusta dipende da OS/CUDA — vedi docs/ADVANCED_SETUP.md). I modelli lg
-# (EN/IT/ES, default auto) funzionano con la sola installazione core.
+# nlp_model=trf). Richiede torch (NON pinnato qui: la wheel giusta dipende da
+# OS/CUDA — su Linux PyPI serve la build CUDA, per CPU-only usare
+# download.pytorch.org/whl/cpu; vedi docs/ADVANCED_SETUP.md) e cupy per
+# spacy.require_gpu(). I modelli lg (EN/IT/ES, default auto) funzionano con
+# la sola installazione core.
 gpu = [
-    "spacy-transformers==1.4.0"
+    "spacy-transformers==1.4.0",
+    "cupy-cuda12x==14.1.1"
 ]
 
 [tool.setuptools]

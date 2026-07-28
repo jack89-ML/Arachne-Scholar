@@ -1,0 +1,26 @@
+# Override GPU per il backend spaCy transformer (nlp_model=trf).
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Prerequisiti sull'host Docker:
+#   1. driver NVIDIA funzionante (nvidia-smi OK)
+#   2. NVIDIA Container Toolkit installato
+#      (verifica: docker info | grep -i nvidia  ->  Runtimes: nvidia)
+#
+# L'override fa due cose: builda il backend con INSTALL_GPU=true (torch CUDA
+# + spacy-transformers + cupy + en_core_web_trf) e gli riserva le GPU.
+# L'OCR resta sul servizio ollama del compose base (gia' con GPU).
+
+services:
+  backend:
+    build:
+      args:
+        INSTALL_GPU: "true"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

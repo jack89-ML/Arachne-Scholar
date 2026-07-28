@@ -9,3 +9,4 @@ settings.json
 pipeline.lang
 .pytest_cache/
 *.log
+*.egg-info/

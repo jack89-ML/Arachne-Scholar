@@ -91,15 +91,17 @@ docker compose logs -f ollama-init
 #    http://localhost:8000
 ```
 
-Backend con accelerazione GPU per spaCy (opzionale, immagine più pesante):
+Backend con accelerazione GPU per spaCy transformer (opzionale, immagine più
+pesante — richiede NVIDIA Container Toolkit sull'host):
 
 ```bash
-docker compose build --build-arg INSTALL_GPU=true
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
 
-> 🔧 Setup bare-metal, tuning del contesto OCR (`OLLAMA_NUM_CTX=16384`) e fix
-> `LD_LIBRARY_PATH`: vedi **[docs/ADVANCED_SETUP.md](docs/ADVANCED_SETUP.md)**.
+> 🔧 Deploy con **Portainer** (YAML pronti, scenari OCR remoto/GPU):
+> **[docs/PORTAINER.md](docs/PORTAINER.md)**.
+> Setup bare-metal, tuning del contesto OCR (`OLLAMA_NUM_CTX=16384`) e fix
+> `LD_LIBRARY_PATH`: **[docs/ADVANCED_SETUP.md](docs/ADVANCED_SETUP.md)**.
 
 ## 🕹️ Come si usa
 
