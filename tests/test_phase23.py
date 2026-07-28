@@ -195,6 +195,27 @@ class TestViewerXSS:
             assert ch in tpl
 
 
+# ------------------------------------------------------------- settings merge
+class TestSettingsMerge:
+    def test_save_preserves_non_ui_keys(self, client, ws):
+        """Bug run #103: il save da UI riscriveva il file con sole 2 chiavi,
+        cancellando ollama_base_url -> OCR ripuntato su localhost."""
+        (ws / "settings.json").write_text(json.dumps({
+            "nlp_model": "auto", "force_cpu": False,
+            "ollama_base_url": "http://192.168.1.144:11434", "ocr_dpi": 300}))
+        r = client.post("/api/settings", json={"nlp_model": "trf", "force_cpu": True})
+        assert r.status_code == 200
+        saved = json.loads((ws / "settings.json").read_text())
+        assert saved["nlp_model"] == "trf"
+        assert saved["force_cpu"] is True
+        assert saved["ollama_base_url"] == "http://192.168.1.144:11434"
+        assert saved["ocr_dpi"] == 300
+
+    def test_invalid_nlp_model_falls_back(self, client):
+        r = client.post("/api/settings", json={"nlp_model": "h4x0r"})
+        assert r.json()["nlp_model"] == "auto"
+
+
 # ------------------------------------------------------------- sna_metrics
 import sna_metrics as M
 

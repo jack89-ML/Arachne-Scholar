@@ -604,13 +604,26 @@ def get_settings():
 
 @app.post("/api/settings")
 async def save_settings(payload: dict):
-    data = {
-        "nlp_model": str(payload.get("nlp_model", "auto"))[:40],
-        "force_cpu": bool(payload.get("force_cpu", False)),
-    }
+    # MERGE, mai overwrite: settings.json ospita anche chiavi non esposte in
+    # UI (ollama_base_url, ocr_mode, ocr_dpi...). Riscrivere solo le due
+    # chiavi UI le cancellava silenziosamente (bug run #103: dopo un save da
+    # dashboard l'OCR e' ripuntato su localhost).
+    current = {}
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            current = json.load(open(SETTINGS_FILE))
+        except Exception:
+            current = {}
+    if not isinstance(current, dict):
+        current = {}
+    nlp_model = str(payload.get("nlp_model", "auto"))[:40]
+    if nlp_model not in ("auto", "trf"):
+        nlp_model = "auto"
+    current["nlp_model"] = nlp_model
+    current["force_cpu"] = bool(payload.get("force_cpu", False))
     with open(SETTINGS_FILE, "w") as f:
-        json.dump(data, f)
-    return {"status": "saved", **data}
+        json.dump(current, f)
+    return {"status": "saved", **current}
 
 
 def purify_xml(text):
