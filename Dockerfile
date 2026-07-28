@@ -17,9 +17,10 @@ RUN pip install --upgrade pip \
 
 # Modelli NLP "lg" (default nlp_model=auto): leggeri, niente torch, CPU ok.
 # Sono il percorso standard: l'OCR pesante gira sul container ollama, non qui.
-RUN python -m spacy download en_core_web_lg \
-    && python -m spacy download it_core_news_lg \
-    && python -m spacy download es_core_news_lg
+# Versioni PINNATE (compatibilita' spacy 3.8.x): stesso modello = stesso grafo.
+RUN python -m spacy download en_core_web_lg-3.8.0 \
+    && python -m spacy download it_core_news_lg-3.8.0 \
+    && python -m spacy download es_core_news_lg-3.8.0
 
 # OPZIONALE — modello transformer EN (nlp_model=trf, qualita' max):
 # richiede torch + spacy-transformers. Immagine molto piu' pesante.
@@ -29,7 +30,7 @@ RUN python -m spacy download en_core_web_lg \
 ARG INSTALL_GPU=false
 RUN if [ "$INSTALL_GPU" = "true" ]; then \
         pip install torch spacy-transformers \
-        && python -m spacy download en_core_web_trf; \
+        && python -m spacy download en_core_web_trf-3.8.0; \
     fi
 
 EXPOSE 8000

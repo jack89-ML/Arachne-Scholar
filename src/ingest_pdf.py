@@ -195,16 +195,20 @@ def ocr_page_ollama(png_bytes, model, base_url, timeout):
         return None
 
 
-def convert_pdf_ollama(pdf_path, out_dir, settings):
+def convert_pdf_ollama(pdf_path, out_dir, settings, model=None, base_url=None):
     """OCR diretto pagina-per-pagina via Ollama. Ritorna False solo se il
     server/modello non e' raggiungibile (il chiamante fa fallback classico);
-    le singole pagine fallite degradano al testo nativo di QUELLA pagina."""
-    base_url = (os.environ.get("OLLAMA_BASE_URL")
+    le singole pagine fallite degradano al testo nativo di QUELLA pagina.
+    model/base_url possono essere pre-risolti dal chiamante (batch di PDF):
+    cosi' /api/tags viene interrogato UNA volta sola per sessione."""
+    base_url = (base_url
+                or os.environ.get("OLLAMA_BASE_URL")
                 or settings.get("ollama_base_url")
                 or DEFAULT_OLLAMA_URL).rstrip("/")
-    wanted = (os.environ.get("OLLAMA_OCR_MODEL")
-              or settings.get("ollama_model") or DEFAULT_OCR_MODEL)
-    model = resolve_ollama_model(base_url, wanted)
+    if model is None:
+        wanted = (os.environ.get("OLLAMA_OCR_MODEL")
+                  or settings.get("ollama_model") or DEFAULT_OCR_MODEL)
+        model = resolve_ollama_model(base_url, wanted) or ""
     if not model:
         print(f"[ollama-ocr] {base_url} irraggiungibile o nessun modello "
               f"glm-ocr nei tag -> fallback PyMuPDF")
@@ -268,16 +272,19 @@ def convert_pdf_classic(pdf_path, out_dir):
     return True
 
 
-def convert_pdf_to_md(pdf_path, out_dir, hw=None, settings=None):
+def convert_pdf_to_md(pdf_path, out_dir, hw=None, settings=None,
+                      model=None, base_url=None):
     """Router. Priorita' modalita': env ARACHNE_OCR_MODE > settings.ocr_mode
     > auto. auto/ollama: tenta OCR diretto, poi fallback classico per quel PDF.
-    Il parametro hw e' accettato per retro-compatibilita' e ignorato."""
+    Il parametro hw e' accettato per retro-compatibilita' e ignorato.
+    model/base_url pre-risolti evitano una /api/tags per PDF nei batch."""
     settings = settings if settings is not None else load_settings()
     mode = (os.environ.get("ARACHNE_OCR_MODE")
             or settings.get("ocr_mode") or "auto").lower()
     if mode == "classic":
         return convert_pdf_classic(pdf_path, out_dir)
-    if not convert_pdf_ollama(pdf_path, out_dir, settings):
+    if not convert_pdf_ollama(pdf_path, out_dir, settings,
+                              model=model, base_url=base_url):
         return convert_pdf_classic(pdf_path, out_dir)
     return True
 
@@ -301,5 +308,19 @@ if __name__ == "__main__":
     if not pdfs:
         print(f"Nessun PDF trovato in {in_dir}")
     else:
+        # Risoluzione modello UNA volta per l'intera sessione (non per PDF):
+        # "" = gia' verificato, non disponibile -> percorso classico diretto.
+        settings = load_settings()
+        mode = (os.environ.get("ARACHNE_OCR_MODE")
+                or settings.get("ocr_mode") or "auto").lower()
+        model = base_url = None
+        if mode != "classic":
+            base_url = (os.environ.get("OLLAMA_BASE_URL")
+                        or settings.get("ollama_base_url")
+                        or DEFAULT_OLLAMA_URL).rstrip("/")
+            wanted = (os.environ.get("OLLAMA_OCR_MODEL")
+                      or settings.get("ollama_model") or DEFAULT_OCR_MODEL)
+            model = resolve_ollama_model(base_url, wanted) or ""
         for pdf in pdfs:
-            convert_pdf_to_md(pdf, out_dir)
+            convert_pdf_to_md(pdf, out_dir, settings=settings,
+                              model=model, base_url=base_url)

@@ -362,6 +362,7 @@
         loadProjects(); // la card del run fallito resta visibile nella griglia
     }
     function resetPipelineUI(){
+        LOG_OFFSET=0; LOG_BUFFER='';
         [1,2,3].forEach(n=>setStage(n,null,0));
         document.getElementById('pipeline-error').classList.remove('show');
         document.getElementById('btn-back-home').style.display='none';
@@ -408,7 +409,10 @@
         }
         const chunks=[...logs.matchAll(/\[(\d+)\/(\d+)\]/g)]; const lastC=chunks.length?chunks[chunks.length-1]:null; const intra=lastC?Math.round(100*parseInt(lastC[1])/parseInt(lastC[2])):0; const pages=[...logs.matchAll(/Pagina (\d+)\/(\d+) completata/g)]; const lastP=pages.length?pages[pages.length-1]:null; const ocrPct=lastP?Math.round(100*parseInt(lastP[1])/parseInt(lastP[2])):0; if(logs.includes('ESECUZIONE: Ingestione PDF')&&!logs.includes('ESECUZIONE: Estrazione SVO'))setStage(1,'active',Math.max(5,ocrPct)); if(logs.includes('ESECUZIONE: Estrazione SVO')){setStage(1,'done',100);setStage(2,'active',Math.max(5,intra));} if(logs.includes('ESECUZIONE: Calcolo Metriche SNA')){setStage(2,'done',100);setStage(3,'active',60);} if(logs.includes('PIPELINE COMPLETATA')){setStage(1,'done',100);setStage(2,'done',100);setStage(3,'done',100);} }
     function renderLog(raw){ const esc=raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); return esc.split('\n').map(l=>{ let cls=''; if(l.includes('[OCR]'))cls='log-ocr'; else if(l.includes('FALLITA')||l.includes('ERRORE')||l.includes('!!!')||l.includes('[warn]'))cls='log-err'; else if(l.startsWith('--- ESECUZIONE')||l.includes('PIPELINE COMPLETATA'))cls='log-stage'; else if(/^\s*\[\d+\/\d+\]/.test(l)||l.includes('[hapax-filter]')||l.includes('[setup]'))cls='log-svo'; else if(l.startsWith('[hardware]'))cls='log-hw'; return cls?`<span class="${cls}">${l}</span>`:l; }).join('\n'); }
-    function pollLogs(){ const lc=document.getElementById('log-console'); const int=setInterval(async()=>{ try{ const res=await fetch('/api/logs'); const data=await res.json(); lc.innerHTML=renderLog(data.logs); lc.scrollTop=lc.scrollHeight; updateProgress(data.logs); if(data.logs.includes('PIPELINE COMPLETATA')){ clearInterval(int); document.getElementById('btn-results').style.display='block'; loadProjects(); } else if(/!!! (ERRORE|ECCEZIONE)/.test(data.logs)){ clearInterval(int); const m=data.logs.match(/!!! (?:ERRORE|ECCEZIONE)[^\n]*/); showPipelineError('Pipeline interrotta. '+(m?m[0]:'Controlla il log per i dettagli.')); } }catch(e){} },1000); }
+    /* Log incrementale: si viaggia a offset, il server manda solo il delta.
+       LOG_BUFFER accumula il testo per i parser di progresso/errori. */
+    let LOG_OFFSET=0, LOG_BUFFER='';
+    function pollLogs(){ const lc=document.getElementById('log-console'); const int=setInterval(async()=>{ try{ const res=await fetch('/api/logs?offset='+LOG_OFFSET); const data=await res.json(); if(data.reset)LOG_BUFFER=''; LOG_BUFFER+=data.logs; LOG_OFFSET=data.offset; lc.innerHTML=renderLog(LOG_BUFFER); lc.scrollTop=lc.scrollHeight; updateProgress(LOG_BUFFER); if(LOG_BUFFER.includes('PIPELINE COMPLETATA')){ clearInterval(int); document.getElementById('btn-results').style.display='block'; loadProjects(); } else if(/!!! (ERRORE|ECCEZIONE)/.test(LOG_BUFFER)){ clearInterval(int); const m=LOG_BUFFER.match(/!!! (?:ERRORE|ECCEZIONE)[^\n]*/); showPipelineError('Pipeline interrotta. '+(m?m[0]:'Controlla il log per i dettagli.')); } }catch(e){} },1000); }
 
     /* ================= INTELLIGENCE DASHBOARD ================= */
     function computeDegrees(edges){

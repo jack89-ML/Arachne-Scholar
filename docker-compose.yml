@@ -1,12 +1,15 @@
-# Arachne Scholar — architettura minimale a 2 container.
+# Arachne Scholar — architettura minimale a 2 container (+1 bootstrap one-shot).
 #
-#   ollama   -> motore OCR (glm-ocr) con passthrough GPU
-#   backend  -> FastAPI + SpaCy SVO + rasterizzatore PDF (CPU, parla a
-#               http://ollama:11434 via DNS interno)
+#   ollama       -> motore OCR (glm-ocr) con passthrough GPU
+#   ollama-init  -> one-shot: scarica il modello OCR al primo avvio, poi esce
+#   backend      -> FastAPI + SpaCy SVO + rasterizzatore PDF (CPU, parla a
+#                   http://ollama:11434 via DNS interno)
 #
-# Prerequisito una tantum (modello OCR nel volume ollama_models):
-#   docker compose up -d ollama
-#   docker exec arachne-ollama ollama pull glm-ocr
+# Quickstart (tutto automatico, nessun passo manuale):
+#   docker compose up -d --build
+#
+# Reproducibilita': immagine ollama PINNATA (0.32.5). Per aggiornare: cambia
+# il tag qui e in ollama-init, rebuild, e ri-scarica il modello se serve.
 #
 # Variante consigliata a contesto 16k (pagina intera ~6k token visivi):
 #   curl -X POST http://localhost:11434/api/create -H 'Content-Type: application/json' -d \
@@ -17,10 +20,13 @@
 # GPU: richiede NVIDIA Container Toolkit (Linux) o Docker Desktop + WSL2
 # (Windows). Senza GPU, eliminare il blocco deploy: l'OCR gira su CPU
 # (lento ma funzionante).
+#
+# RETE: le porte sono esposte su tutte le interfacce (uso in LAN privata).
+# Non esporre su reti pubbliche: l'app non ha autenticazione.
 
 services:
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.32.5
     container_name: arachne-ollama
     ports:
       - "11434:11434"
@@ -30,6 +36,13 @@ services:
       - OLLAMA_FLASH_ATTENTION=1
       - OLLAMA_NUM_CTX=16384
     restart: unless-stopped
+    healthcheck:
+      # ollama ls interroga il server locale: esce 0 solo quando serve
+      test: ["CMD", "ollama", "ls"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     deploy:
       resources:
         reservations:
@@ -37,6 +50,19 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+  ollama-init:
+    # Bootstrap one-shot: pull del modello OCR nel volume condiviso, poi esce.
+    # Rende il quickstart un singolo comando. Riavviarlo e' idempotente.
+    image: ollama/ollama:0.32.5
+    container_name: arachne-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull glm-ocr"]
+    restart: "no"
 
   backend:
     build:
@@ -55,8 +81,10 @@ services:
       # Override opzionali:
       # - OLLAMA_OCR_MODEL=glm-ocr-16k
       # - ARACHNE_OCR_MODE=auto        # auto | ollama | classic
+      # - ARACHNE_NLP_MODEL=auto       # auto (lg, CPU ok) | trf (EN, torch/GPU)
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

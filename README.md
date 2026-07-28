@@ -49,8 +49,9 @@ paritaria dei risultati.
 
 ## ⚙️ Cosa fa e come funziona
 
-Architettura a **2 container**, zero SDK esterni: il backend parla con Ollama
-via HTTP diretto.
+Architettura a **2 container** (+ un bootstrap one-shot che scarica il modello
+OCR al primo avvio), zero SDK esterni: il backend parla con Ollama via HTTP
+diretto.
 
 ```
 ┌─────────────────────────────┐      HTTP (DNS interno)      ┌──────────────────────────┐
@@ -79,12 +80,12 @@ Il flusso: **PyMuPDF** rasterizza ogni pagina PDF in memoria → **Ollama**
 git clone https://github.com/jack89-ML/Arachne-Scholar.git
 cd Arachne-Scholar
 
-# 1) Avvia Ollama e scarica il modello OCR (una tantum, ~2 GB)
-docker compose up -d ollama
-docker exec arachne-ollama ollama pull glm-ocr
-
-# 2) Build e avvio dello stack
+# 1) Build e avvio dello stack — un container one-shot (ollama-init)
+#    scarica automaticamente il modello OCR (~2 GB) al primo avvio
 docker compose up -d --build
+
+# 2) (solo la prima volta) segui il bootstrap del modello:
+docker compose logs -f ollama-init
 
 # 3) Apri la dashboard
 #    http://localhost:8000
@@ -111,5 +112,4 @@ docker compose up -d
 
 ## 📸 Screenshots
 
-![Dashboard Screenshot](docs/assets/dashboard.png)
-*(aggiungi qui uno screenshot della HUD — salvalo in `docs/assets/dashboard.png`)*
+*(in arrivo — salva uno screenshot della HUD in `docs/assets/dashboard.png` e referenzialo qui)*

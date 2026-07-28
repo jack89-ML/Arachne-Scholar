@@ -10,7 +10,8 @@ def calculate_metrics(graph_path, out_path, sample_k=500, top_n=200):
     G = nx.DiGraph()
     for node in data["nodes"]:
         G.add_node(node["id"], type=node.get("type", "concept"), label=node.get("label", node["id"]))
-    for edge in data["edges"]:
+    # tollera grafi con la sola chiave "links" (formato d3) invece di "edges"
+    for edge in data.get("edges", data.get("links", [])):
         G.add_edge(edge["source"], edge["target"], relation=edge.get("relation", ""), weight=edge.get("weight", 1))
 
     G_undirected = G.to_undirected()

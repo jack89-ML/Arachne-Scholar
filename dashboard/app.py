@@ -5,11 +5,13 @@ import os
 import sys
 import re
 import json
+import html
 import sqlite3
 import subprocess
 import shutil
 import tempfile
 import threading
+import uuid
 from datetime import datetime, timezone
 
 app = FastAPI(title="Arachne Scholar Web Engine")
@@ -364,11 +366,23 @@ async def start_pipeline(background_tasks: BackgroundTasks):
 
 
 @app.get("/api/logs")
-def get_logs():
+def get_logs(offset: int = 0):
+    """Log incrementale: il client manda l'offset dell'ultima lettura e
+    riceve SOLO il delta + il nuovo offset (niente piu' full-reload del file
+    a ogni poll). offset=0 -> file intero. Se il file e' stato troncato
+    (nuovo run: il log riparte da zero) risponde con reset=true."""
     if not os.path.exists(LOG_FILE):
-        return {"logs": "In attesa di avvio..."}
-    with open(LOG_FILE, "r") as f:
-        return {"logs": f.read()}
+        return {"logs": "In attesa di avvio...", "offset": 0, "reset": False}
+    size = os.path.getsize(LOG_FILE)
+    reset = False
+    if offset < 0 or offset > size:
+        # il file e' piu' corto dell'offset: nuovo run -> riparti da zero
+        offset, reset = 0, True
+    with open(LOG_FILE, "rb") as f:
+        f.seek(offset)
+        raw = f.read()
+    return {"logs": raw.decode("utf-8", errors="replace"),
+            "offset": offset + len(raw), "reset": reset}
 
 
 @app.get("/api/graph")
@@ -647,13 +661,14 @@ def _build_nx(scope="all"):
     return G
 
 
-def _export(fmt, scope="all"):
-    G = _build_nx(scope)
-    if G is None:
-        return JSONResponse(status_code=404, content={"error": "Nessun grafo da esportare."})
-    suffix = ".gexf" if fmt == "gexf" else ".graphml"
-    tmp = os.path.join(tempfile.gettempdir(), f"arachne_export_{scope}{suffix}")
+def _write_xml_tmp(G, fmt, stem):
+    """Scrive il grafo in GEXF/GraphML su un tmp file UNIVOCO (uuid) e
+    purificato. Niente path fissi: due richieste concorrenti non possono
+    sovrascriversi a vicenda. Il chiamante serve il file con cleanup in
+    background, cosi' /tmp non si riempie di export."""
     import networkx as nx
+    suffix = ".gexf" if fmt == "gexf" else ".graphml"
+    tmp = os.path.join(tempfile.gettempdir(), f"{stem}_{uuid.uuid4().hex}{suffix}")
     if fmt == "gexf":
         nx.write_gexf(G, tmp)
     else:
@@ -663,8 +678,23 @@ def _export(fmt, scope="all"):
         raw = tf.read()
     with open(tmp, "w", encoding="utf-8") as tf:
         tf.write(purify_xml(raw))
-    return FileResponse(tmp, media_type="application/xml",
-                        filename=f"arachne_scholar_{scope}{suffix}")
+    return tmp
+
+
+def _serve_tmp(tmp, media_type, download_name):
+    """FileResponse con cancellazione del tmp DOPO l'invio (background)."""
+    from starlette.background import BackgroundTask
+    return FileResponse(tmp, media_type=media_type, filename=download_name,
+                        background=BackgroundTask(lambda: os.path.exists(tmp) and os.remove(tmp)))
+
+
+def _export(fmt, scope="all"):
+    G = _build_nx(scope)
+    if G is None:
+        return JSONResponse(status_code=404, content={"error": "Nessun grafo da esportare."})
+    suffix = ".gexf" if fmt == "gexf" else ".graphml"
+    tmp = _write_xml_tmp(G, fmt, f"arachne_export_{scope}")
+    return _serve_tmp(tmp, "application/xml", f"arachne_scholar_{scope}{suffix}")
 
 
 @app.get("/api/export/gexf")
@@ -681,12 +711,23 @@ def export_graphml(scope: str = "all"):
 # EXPORT HUB -- artefatti per-progetto (memoria analitica)
 # ===========================================================================
 WEB_CACHE_DIR = os.path.join(DATA_DIR, ".web_cache")
+VENDOR_DIR = os.path.join(STATIC_DIR, "vendor")
 os.makedirs(WEB_CACHE_DIR, exist_ok=True)
 
+# Librerie del viewer offline: VENDORED nel repo (dashboard/static/vendor/),
+# versioni pinnate — l'export "offline" e' offline per davvero e la supply
+# chain non dipende da unpkg. Il CDN resta solo come extrema ratio se il
+# file vendored manca (deploy parziale), con URL pinnati e cache su disco.
 VIEW_LIBS = {
-    "graphology": "https://unpkg.com/graphology/dist/graphology.umd.min.js",
-    "sigma": "https://unpkg.com/sigma/build/sigma.min.js",
-    "forceatlas2": "https://unpkg.com/graphology-layout-forceatlas2/build/graphology-layout-forceatlas2.min.js",
+    "graphology": ("graphology.min.js",
+                   "https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"),
+    "sigma": ("sigma.min.js",
+              "https://unpkg.com/sigma@2.4.0/build/sigma.min.js"),
+    # graphology-layout-forceatlas2 >= 0.9 non pubblica piu' la build UMD:
+    # 0.4.4 e' l'ultima con bundle browser (API assign(), verificata
+    # compatibile con graphology 0.25.x).
+    "forceatlas2": ("forceatlas2.min.js",
+                    "https://unpkg.com/graphology-layout-forceatlas2@0.4.4/build/graphology-layout-forceatlas2.min.js"),
 }
 
 
@@ -724,8 +765,16 @@ def _nx_from_data(data):
 
 
 def _fetch_web_lib(name):
-    """Scarica (con cache su disco) una libreria JS per il viewer offline.
-    Ritorna il sorgente JS oppure None se non raggiungibile."""
+    """Sorgente JS di una lib del viewer: PRIMA il file vendored nel repo,
+    poi (extrema ratio) il CDN pinnato con cache su disco. None se
+    irreperibile. Niente rete nel percorso normale: export davvero offline."""
+    local = os.path.join(VENDOR_DIR, VIEW_LIBS[name][0])
+    if os.path.exists(local) and os.path.getsize(local) > 1000:
+        try:
+            with open(local, encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            pass
     cache = os.path.join(WEB_CACHE_DIR, f"{name}.js")
     if os.path.exists(cache) and os.path.getsize(cache) > 1000:
         try:
@@ -735,8 +784,8 @@ def _fetch_web_lib(name):
             pass
     try:
         import urllib.request
-        req = urllib.request.Request(VIEW_LIBS[name],
-                                     headers={"User-Agent": "arachne-scholar/4.0"})
+        req = urllib.request.Request(VIEW_LIBS[name][1],
+                                     headers={"User-Agent": "arachne-scholar/0.2.0"})
         with urllib.request.urlopen(req, timeout=20) as r:
             src = r.read().decode("utf-8", errors="replace")
         if len(src) > 1000:
@@ -750,19 +799,20 @@ def _fetch_web_lib(name):
 
 def _render_view_html(data, title):
     """Genera graph_view.html: file statico self-contained che impacchetta
-    Graphology+Sigma+ForceAtlas2 (inlinati se scaricabili, altrimenti CDN)
-    e il JSON del grafo, navigabile offline nel browser dell'utente."""
+    Graphology+Sigma+ForceAtlas2 (vendored, altrimenti CDN pinnato) e il JSON
+    del grafo, navigabile offline nel browser dell'utente.
+    Il titolo (nome progetto, input utente) e' html-escaped: finisce nel DOM."""
     libs_inline, libs_cdn = [], []
-    for name, url in VIEW_LIBS.items():
+    for name, (fname, url) in VIEW_LIBS.items():
         src = _fetch_web_lib(name)
         if src:
-            libs_inline.append(f"/* ==== {name} (inlined) ==== */\n" + src)
+            libs_inline.append(f"/* ==== {name} (vendored) ==== */\n" + src)
         else:
             libs_cdn.append(f'<script src="{url}"></script>')
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     libs_block = ("\n".join(f"<script>\n{s}\n</script>" for s in libs_inline)
                   + "\n" + "\n".join(libs_cdn))
-    return VIEW_TEMPLATE.replace("__TITLE__", title) \
+    return VIEW_TEMPLATE.replace("__TITLE__", html.escape(title, quote=True)) \
                         .replace("__LIBS__", libs_block) \
                         .replace("__DATA__", payload)
 
@@ -792,19 +842,31 @@ VIEW_TEMPLATE = """<!DOCTYPE html>
 __LIBS__
 <script>
 const DATA = __DATA__;
+/* esc(): OGNI stringa derivata dal grafo (label, relation, passage — testo
+   OCR da PDF, potenzialmente ostile) passa da qui prima di finire in
+   innerHTML. Il viewer offline e' blindato: niente markup iniettabile. */
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const commColors={0:'#a855f7',1:'#22d3ee',2:'#f472b6',3:'#34d399',4:'#fbbf24',5:'#818cf8'};
 const graph=new graphology.UndirectedGraph();
 const deg={};
 (DATA.edges||[]).forEach(e=>{deg[e.source]=(deg[e.source]||0)+1;deg[e.target]=(deg[e.target]||0)+1;});
-(DATA.nodes||[]).forEach(n=>graph.mergeNode(n.id,{label:n.label||n.id,
+(DATA.nodes||[]).forEach(n=>graph.mergeNode(n.id,{label:String(n.label||n.id),
   size:Math.min(28,Math.max(3,Math.sqrt(deg[n.id]||1)*2.2)),
   color:commColors[(n.metrics&&n.metrics.community)||0]||'#888',
   x:Math.random()*100,y:Math.random()*100}));
 (DATA.edges||[]).forEach(e=>{if(e.source!==e.target&&graph.hasNode(e.source)&&graph.hasNode(e.target))
-  try{graph.mergeEdge(e.source,e.target,{label:e.relation||'',size:1,color:'rgba(168,85,247,0.4)'});}catch(_){}});
-if(window.graphologyForceAtlas2&&graphologyForceAtlas2.ForceAtlas2Layout){
-  const lay=new graphologyForceAtlas2.ForceAtlas2Layout(graph,{settings:{gravity:.2,scalingRatio:10,slowDown:10}});
-  lay.start(); setTimeout(()=>lay.stop(),9000);
+  try{graph.mergeEdge(e.source,e.target,{label:String(e.relation||''),size:1,color:'rgba(168,85,247,0.4)'});}catch(_){}});
+/* Layout sincrono ForceAtlas2 (bundle vendored, API assign): iterazioni
+   adattive alla taglia, Barnes-Hut oltre gli 800 nodi. Se la lib manca,
+   il grafo resta navigabile su coordinate casuali (degrado, non crash). */
+if(window.forceAtlas2&&forceAtlas2.assign){
+  try{
+    const N=graph.order;
+    const iters=N>4000?120:(N>1500?200:300);
+    forceAtlas2.assign(graph,{iterations:iters,
+      settings:{gravity:1,scalingRatio:8,slowDown:5,strongGravityMode:true,
+                barnesHutOptimize:N>800,barnesHutTheta:0.6}});
+  }catch(err){console.warn('layout FA2 saltato:',err);}
 }
 const sigma=new Sigma(graph,document.getElementById('g'),{renderEdgeLabels:true,
   labelFont:'Inter',labelSize:12,edgeLabelFont:'monospace',edgeLabelSize:9,
@@ -815,10 +877,10 @@ sigma.on('clickNode',({node})=>{
   (DATA.edges||[]).forEach(e=>{
     if(e.source===node)rows.push({a:'&rarr;',e:e,other:e.target});
     else if(e.target===node)rows.push({a:'&larr;',e:e,other:e.source});});
-  info.innerHTML='<span id="x" onclick="this.parentElement.style.display=\'none\'">[X]</span>'
-    +'<h3>'+labelOf(node)+'</h3><div style="color:#22d3ee;font:10px monospace">'+rows.length+' connessioni</div>'
-    +rows.slice(0,60).map(r=>'<div class="row"><span class="rel">'+r.a+' '+(r.e.relation||'')+'</span> '
-      +labelOf(r.other)+(r.e.passage?'<div class="passage">&laquo;'+r.e.passage+'&raquo;</div>':'')+'</div>').join('');
+  info.innerHTML='<span id="x" onclick="this.parentElement.hidden=true">[X]</span>'
+    +'<h3>'+esc(labelOf(node))+'</h3><div style="color:#22d3ee;font:10px monospace">'+rows.length+' connessioni</div>'
+    +rows.slice(0,60).map(r=>'<div class="row"><span class="rel">'+r.a+' '+esc(r.e.relation||'')+'</span> '
+      +esc(labelOf(r.other))+(r.e.passage?'<div class="passage">&laquo;'+esc(r.e.passage)+'&raquo;</div>':'')+'</div>').join('');
   info.style.display='block';
 });
 </script></body></html>"""
@@ -866,19 +928,9 @@ def _export_project_fmt(run_id, fmt):
     if data is None:
         return JSONResponse(status_code=404, content={"error": f"Archivio progetto #{run_id} assente o corrotto."})
     G = _nx_from_data(data)
-    suffix = f".{fmt}"
-    tmp = os.path.join(tempfile.gettempdir(), f"arachne_run{run_id}{suffix}")
-    import networkx as nx
-    if fmt == "gexf":
-        nx.write_gexf(G, tmp)
-    else:
-        nx.write_graphml(G, tmp)
-    with open(tmp, "r", encoding="utf-8", errors="replace") as tf:
-        raw = tf.read()
-    with open(tmp, "w", encoding="utf-8") as tf:
-        tf.write(purify_xml(raw))
-    return FileResponse(tmp, media_type="application/xml",
-                        filename=f"{_safe_slug(_project_name(run_id))}{suffix}")
+    tmp = _write_xml_tmp(G, fmt, f"arachne_run{run_id}")
+    return _serve_tmp(tmp, "application/xml",
+                      f"{_safe_slug(_project_name(run_id))}.{fmt}")
 
 
 @app.get("/api/projects/{run_id}/export/view")
@@ -888,17 +940,18 @@ def export_project_view(run_id: int):
     if data is None:
         return JSONResponse(status_code=404, content={"error": f"Archivio progetto #{run_id} assente o corrotto."})
     name = _project_name(run_id)
-    html = _render_view_html(data, f"{name} — run #{run_id}")
-    tmp = os.path.join(tempfile.gettempdir(), f"arachne_run{run_id}_view.html")
+    html_out = _render_view_html(data, f"{name} — run #{run_id}")
+    tmp = os.path.join(tempfile.gettempdir(),
+                       f"arachne_view_{run_id}_{uuid.uuid4().hex}.html")
     with open(tmp, "w", encoding="utf-8") as f:
-        f.write(html)
-    return FileResponse(tmp, media_type="text/html",
-                        filename=f"{_safe_slug(name)}_view.html")
+        f.write(html_out)
+    return _serve_tmp(tmp, "text/html", f"{_safe_slug(name)}_view.html")
 
 
 @app.get("/api/projects/{run_id}/export/package")
 def export_project_package(run_id: int):
-    """Pacchetto completo: graph.json + .gexf + .graphml + graph_view.html (ZIP)."""
+    """Pacchetto completo: graph.json + .gexf + .graphml + graph_view.html (ZIP).
+    Tutto in memoria (BytesIO): nessun tmp file, nessuna collisione."""
     import io
     import zipfile
     data = _load_run_graph(run_id)
@@ -913,10 +966,10 @@ def export_project_package(run_id: int):
         z.writestr(f"{slug}_graph.json",
                    json.dumps(data, ensure_ascii=False, indent=2))
         for fmt, writer in (("gexf", nx.write_gexf), ("graphml", nx.write_graphml)):
-            tmp = os.path.join(tempfile.gettempdir(), f"arachne_zip_{run_id}.{fmt}")
-            writer(G, tmp)
-            with open(tmp, "r", encoding="utf-8", errors="replace") as tf:
-                z.writestr(f"{slug}.{fmt}", purify_xml(tf.read()))
+            xbuf = io.BytesIO()
+            writer(G, xbuf)
+            z.writestr(f"{slug}.{fmt}",
+                       purify_xml(xbuf.getvalue().decode("utf-8", errors="replace")))
         z.writestr(f"{slug}_view.html", _render_view_html(data, f"{name} — run #{run_id}"))
     buf.seek(0)
     from fastapi.responses import StreamingResponse
