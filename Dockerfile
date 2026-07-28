@@ -15,21 +15,22 @@ COPY dashboard ./dashboard
 RUN pip install --upgrade pip \
     && pip install .
 
-# SpaCy trf (EN) richiede spacy-transformers -> torch. Di default torch CPU:
-# immagine leggera e portabile (l'OCR gira sul container ollama, non qui).
-# Per GPU nel backend (non necessaria): docker build --build-arg INSTALL_GPU=true .
-ARG INSTALL_GPU=false
-RUN if [ "$INSTALL_GPU" = "true" ]; then \
-        pip install torch spacy-transformers; \
-    else \
-        pip install torch --index-url https://download.pytorch.org/whl/cpu \
-        && pip install spacy-transformers; \
-    fi
-
-# Modelli NLP precaricati: EN transformer (default), IT/ES large.
-RUN python -m spacy download en_core_web_trf \
+# Modelli NLP "lg" (default nlp_model=auto): leggeri, niente torch, CPU ok.
+# Sono il percorso standard: l'OCR pesante gira sul container ollama, non qui.
+RUN python -m spacy download en_core_web_lg \
     && python -m spacy download it_core_news_lg \
     && python -m spacy download es_core_news_lg
+
+# OPZIONALE — modello transformer EN (nlp_model=trf, qualita' max):
+# richiede torch + spacy-transformers. Immagine molto piu' pesante.
+#   docker compose build --build-arg INSTALL_GPU=true
+# (torch da PyPI = build CUDA su Linux; per torch CPU-only installare a mano
+#  da https://download.pytorch.org/whl/cpu prima di spacy-transformers)
+ARG INSTALL_GPU=false
+RUN if [ "$INSTALL_GPU" = "true" ]; then \
+        pip install torch spacy-transformers \
+        && python -m spacy download en_core_web_trf; \
+    fi
 
 EXPOSE 8000
 

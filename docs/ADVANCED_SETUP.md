@@ -162,7 +162,7 @@ essere omessa.
 
 | Chiave | Default | Effetto |
 |---|---|---|
-| `nlp_model` | `auto` | `trf` = transformer EN (GPU consigliata); `auto` = lg se no GPU |
+| `nlp_model` | `auto` | `auto` = modelli `lg` (leggeri, niente torch, CPU ok); `trf` = transformer `en_core_web_trf` (richiede torch+spacy-transformers, GPU opzionale; su IT/ES ricade su `lg` perché non esistono pipeline trf ufficiali; se il trf non è installato, fallback automatico su `lg` con warning nei log) |
 | `force_cpu` | `false` | `true` → esporta `CUDA_VISIBLE_DEVICES=""` ai subprocess (SpaCy CPU) |
 | `ocr_mode` | `auto` | `auto` = OCR se Ollama risponde, altrimenti PyMuPDF; `ollama` = forza OCR; `classic` = solo PyMuPDF |
 | `ollama_base_url` | `http://localhost:11434` | endpoint Ollama (in Docker: `http://ollama:11434` via env) |
@@ -171,4 +171,5 @@ essere omessa.
 | `ocr_dpi` | `200` | risoluzione raster PyMuPDF |
 
 Override equivalenti via ambiente: `OLLAMA_BASE_URL`, `OLLAMA_OCR_MODEL`,
-`ARACHNE_OCR_MODE` (valori: `auto|ollama|classic`).
+`ARACHNE_OCR_MODE` (valori: `auto|ollama|classic`), `ARACHNE_NLP_MODEL`
+(valori: `auto|trf`).

@@ -7,40 +7,48 @@ Archi via Dependency Parsing (SVO + relazioni logiche) con etichette verbali rea
 Uso:
     python3 build_local_graph.py [markdown_dir] [output_dir]
 """
-import os, sys, json, glob, re, time
+import os, sys, json, glob, re, time, unicodedata
 from collections import Counter
 
-import spacy
+# NB: `import spacy`, il setup GPU e il caricamento del modello vivono in
+# main(): il modulo resta importabile (e testabile) senza spaCy ne' modelli.
 
-# --- LINGUA & MODELLO (v1.2 multilingua EN/IT/ES) ------------------------------
+# --- LINGUA & MODELLO (v1.2 multilingua EN/IT/ES; v0.3 scelta lg/trf) ---------
 _lang_arg = sys.argv[3].lower() if len(sys.argv) > 3 and not sys.argv[3].startswith("-") else "en"
+# Scelta modello via ARACHNE_NLP_MODEL (la dashboard la legge da settings.json):
+#   auto -> modelli "lg": niente torch/spacy-transformers, girano ovunque (CPU ok)
+#   trf  -> transformer EN (en_core_web_trf): qualita' max, richiede torch
+#           (+ cupy per GPU). IT/ES non hanno una pipeline trf ufficiale spaCy:
+#           per loro la modalita' trf ricade su lg con warning.
+NLP_MODE = os.environ.get("ARACHNE_NLP_MODEL", "auto").strip().lower()
+if NLP_MODE not in ("auto", "trf"):
+    NLP_MODE = "auto"
 LANG_MODELS = {
-    "en": "en_core_web_trf",
-    "it": "it_core_news_lg",
-    "es": "es_core_news_lg",
+    "en": {"auto": "en_core_web_lg", "trf": "en_core_web_trf"},
+    "it": {"auto": "it_core_news_lg", "trf": "it_core_news_lg"},
+    "es": {"auto": "es_core_news_lg", "trf": "es_core_news_lg"},
 }
 LANG = _lang_arg if _lang_arg in LANG_MODELS else "en"
-MODEL_NAME = LANG_MODELS[LANG]
+MODEL_NAME = LANG_MODELS[LANG][NLP_MODE]
+if NLP_MODE == "trf" and not MODEL_NAME.endswith("_trf"):
+    print(f"[warn] nessun modello trf per lang={LANG}: ricado su {MODEL_NAME}",
+          file=sys.stderr)
+GPU_ACTIVE = False  # deciso in main() dopo require_gpu
 
-# --- GPU SETUP ----------------------------------------------------------------
-try:
-    spacy.require_gpu()
-    GPU_ACTIVE = True
-except Exception as e:
-    GPU_ACTIVE = False
-    print(f"[warn] GPU non disponibile ({e}), fallback CPU", file=sys.stderr)
 
-# --- AUTO-DOWNLOAD & LOAD ------------------------------------------------------
-try:
-    nlp = spacy.load(MODEL_NAME)
-except OSError:
-    print(f"[setup] modello {MODEL_NAME} mancante, download automatico...", file=sys.stderr)
-    from spacy.cli import download as spacy_download
-    spacy_download(MODEL_NAME)
-    nlp = spacy.load(MODEL_NAME)
+def _fold(text):
+    """Piegatura accenti: NFKD + drop dei segni diacritici ('perché'->'perche').
+    I nid normalizzati sono ASCII: senza folding una parola accentata veniva
+    SPEZZATA dal regex di normalize() ('investigación' -> 'investigaci-n') e i
+    set di riferimento accentati (junk, generic heads, verbi) non matchavano
+    MAI le forme normalizzate -> nodi spazzatura e filtri morti in IT/ES."""
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
 
-nlp.max_length = 6_000_000
-print(f"[setup] lang={LANG} model={MODEL_NAME} gpu={GPU_ACTIVE}", file=sys.stderr)
+
+def _fold_set(words):
+    """Piega un intero set di riferimento, cosi' i confronti avvengono tra
+    forme gia' normalizzate da entrambi i lati."""
+    return {_fold(w) for w in words}
 
 # --- STOPWORDS & FILTRI --------------------------------------------------------
 GENERIC_HEADS_DICT = {
@@ -98,7 +106,7 @@ GENERIC_HEADS_DICT = {
         "panorama", "marco", "perspectiva",
     },
 }
-GENERIC_HEADS = GENERIC_HEADS_DICT.get(LANG, GENERIC_HEADS_DICT["en"])
+GENERIC_HEADS = _fold_set(GENERIC_HEADS_DICT.get(LANG, GENERIC_HEADS_DICT["en"]))
 
 DETERMINERS = {"the", "a", "an", "this", "these", "that", "those", "some",
                "any", "each", "other", "another", "such", "all", "both",
@@ -154,7 +162,7 @@ JUNK_ENTITIES_DICT = {
         "cuándo", "cómo", "como", "dondequiera",
     },
 }
-JUNK_ENTITIES = JUNK_ENTITIES_DICT.get(LANG, JUNK_ENTITIES_DICT["en"])
+JUNK_ENTITIES = _fold_set(JUNK_ENTITIES_DICT.get(LANG, JUNK_ENTITIES_DICT["en"]))
 
 WEAK_VERBS_DICT = {
     "en": {"be", "have", "do", "say", "get", "make", "take", "see",
@@ -187,7 +195,7 @@ WEAK_VERBS_DICT = {
         "declarar", "informar", "afirmar", "seguir", "basar", "usar",
     },
 }
-WEAK_VERBS = WEAK_VERBS_DICT.get(LANG, WEAK_VERBS_DICT["en"])
+WEAK_VERBS = _fold_set(WEAK_VERBS_DICT.get(LANG, WEAK_VERBS_DICT["en"]))
 
 RELATION_VERBS_DICT = {
     "en": {
@@ -259,16 +267,16 @@ RELATION_VERBS_DICT = {
         "agrupar",
     },
 }
-RELATION_VERBS = RELATION_VERBS_DICT.get(LANG, RELATION_VERBS_DICT["en"])
+RELATION_VERBS = _fold_set(RELATION_VERBS_DICT.get(LANG, RELATION_VERBS_DICT["en"]))
 
-EDITORIAL_BLOCKLIST = {
+EDITORIAL_BLOCKLIST = _fold_set({
     # (FIX) Stopwords editoriali e artefatti di stampa — ignorati a priori
     # per eliminare nodi spazzatura e metadati PDF scambiati per entità.
     "ebook", "pubfactory", "handbook", "article", "journal",
     "press", "author", "tion", "ment", "lation", "edness",
     # (FIX) Neutralizza l'hub semantico del dominio — cfr. sociologia
     "sociology", "sociological",
-}
+})
 
 
 NER_TYPE_MAP = {
@@ -306,7 +314,9 @@ def normalize(text):
     t = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", t)
     # rimuovi caratteri markdown/detriti di conversione PDF
     t = re.sub(r"[_*#`~\\\[\](){}<>]", " ", t)
-    t = re.sub(r"[^a-z0-9\s\-']", " ", t.lower())
+    # (FIX i18n) _fold PRIMA del regex ASCII: le accentate vengono piegate
+    # ('società'->'societa') invece che spezzate in due token.
+    t = re.sub(r"[^a-z0-9\s\-']", " ", _fold(t.lower()))
     t = re.sub(r"\s+", " ", t).strip()
     # (FIX 2-3) Suffix-stripping canonico: normalizza -era, -based, ecc.
     # alla root per fondere nodi frammentati. Ordine: suffissi piu' lunghi
@@ -513,7 +523,7 @@ def extract_svo_edges(doc, entities):
         for tok in sent:
             if tok.pos_ != "VERB":
                 continue
-            lemma = tok.lemma_.lower()
+            lemma = _fold(tok.lemma_.lower())
             if lemma in WEAK_VERBS or lemma not in RELATION_VERBS:
                 continue
 
@@ -678,6 +688,43 @@ def process_file(path, nlp, window_size=5):
 
 def main():
     import argparse
+    global GPU_ACTIVE, MODEL_NAME
+    import spacy
+
+    # --- GPU SETUP: tentata solo per i modelli transformer (gli lg non ne
+    # traggono beneficio, e su macchine senza cupy require_gpu() solleva).
+    if MODEL_NAME.endswith("_trf"):
+        try:
+            spacy.require_gpu()
+            GPU_ACTIVE = True
+        except Exception as e:
+            print(f"[warn] GPU non disponibile ({e}), fallback CPU", file=sys.stderr)
+
+    # --- LOAD con politica anti-sorprese --------------------------------------
+    # trf mancante -> fallback lg (niente auto-download: trascinerebbe torch e
+    # spacy-transformers in ambienti pensati per non averli, es. immagine slim).
+    # lg mancante -> download automatico (e' leggero e autosufficiente).
+    try:
+        nlp = spacy.load(MODEL_NAME)
+    except OSError:
+        if MODEL_NAME.endswith("_trf"):
+            fallback = LANG_MODELS[LANG]["auto"]
+            print(f"[warn] {MODEL_NAME} assente: servono torch+spacy-transformers "
+                  f"(build INSTALL_GPU=true o `pip install -e '.[gpu]'`). "
+                  f"Fallback su {fallback}.", file=sys.stderr)
+            MODEL_NAME = fallback
+            nlp = spacy.load(MODEL_NAME)
+        else:
+            print(f"[setup] modello {MODEL_NAME} mancante, download automatico...",
+                  file=sys.stderr)
+            from spacy.cli import download as spacy_download
+            spacy_download(MODEL_NAME)
+            nlp = spacy.load(MODEL_NAME)
+
+    nlp.max_length = 6_000_000
+    print(f"[setup] lang={LANG} model={MODEL_NAME} mode={NLP_MODE} "
+          f"gpu={GPU_ACTIVE}", file=sys.stderr)
+
     parser = argparse.ArgumentParser(description="Arachne Scholar — SVO graph extractor (multilingua)")
     parser.add_argument("md_dir", nargs="?", default=os.path.expanduser("~/scholar_engine/converted_md"))
     parser.add_argument("out_dir", nargs="?", default=os.path.expanduser("~/scholar_engine/graph_out"))

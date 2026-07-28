@@ -7,3 +7,5 @@ __pycache__/
 venv/
 settings.json
 pipeline.lang
+.pytest_cache/
+*.log

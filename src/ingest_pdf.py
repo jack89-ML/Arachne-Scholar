@@ -236,7 +236,10 @@ def convert_pdf_ollama(pdf_path, out_dir, settings):
     doc.close()
 
     full = _light_cleanup(strip_boilerplate("\n\n".join(pages_md)))
-    base_name = os.path.basename(pdf_path).replace(".pdf", ".md")
+    # splitext e' case-insensitive di fatto: 'PAPER.PDF' -> radice 'PAPER',
+    # mentre replace('.pdf','.md') falliva silenziosamente sulle maiuscole
+    # e lasciava un falso '.PDF' che il glob *.md di extract_svo ignorava.
+    base_name = os.path.splitext(os.path.basename(pdf_path))[0] + ".md"
     out_path = os.path.join(out_dir, base_name)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(full)
@@ -257,7 +260,7 @@ def convert_pdf_classic(pdf_path, out_dir):
     text = strip_boilerplate(text)
     text, stats = sanitize_markdown(text, n_pages=n_pages)
     text = re.sub(r'\n{3,}', '\n\n', text)
-    base_name = os.path.basename(pdf_path).replace(".pdf", ".md")
+    base_name = os.path.splitext(os.path.basename(pdf_path))[0] + ".md"
     out_path = os.path.join(out_dir, base_name)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(text)
@@ -293,7 +296,8 @@ if __name__ == "__main__":
           f"VRAM: {hw.get('vram_used_mb')}/{hw.get('vram_total_mb')} MB | "
           f"OCR: {hw.get('ocr_model') or 'non disponibile'}")
 
-    pdfs = glob.glob(os.path.join(in_dir, "*.pdf"))
+    pdfs = sorted(p for p in glob.glob(os.path.join(in_dir, "*"))
+                  if os.path.splitext(p)[1].lower() == ".pdf")
     if not pdfs:
         print(f"Nessun PDF trovato in {in_dir}")
     else:

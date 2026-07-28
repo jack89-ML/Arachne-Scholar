@@ -9,9 +9,20 @@ import sqlite3
 import subprocess
 import shutil
 import tempfile
+import threading
 from datetime import datetime, timezone
 
 app = FastAPI(title="Arachne Scholar Web Engine")
+
+# Lingue supportate dalla pipeline: whitelist dura usata a ogni confine
+# (upload form -> pipeline.lang -> subprocess). Mai interpolare input utente
+# in comandi shell.
+ALLOWED_LANGS = frozenset({"en", "it", "es"})
+
+# Lock di processo: una sola pipeline alla volta (i subprocess si
+# sovrascriverebbero log, graph.json e righe del DB).
+PIPELINE_LOCK = threading.Lock()
+RUN_STATE = {"run_id": None}
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -217,6 +228,19 @@ def system_hardware():
 
 @app.post("/api/upload")
 async def upload_files(files: list[UploadFile] = File(...), lang: str = Form("en")):
+    # Whitelist dura sulla lingua: questo valore finisce in pipeline.lang e
+    # poi negli argv dei subprocess NLP. Niente whitelist -> niente run.
+    lang = (lang or "en").strip().lower()
+    if lang not in ALLOWED_LANGS:
+        return JSONResponse(status_code=400, content={
+            "error": f"Lingua non supportata: {lang!r}. Valori ammessi: en, it, es."})
+    # VALIDA PRIMA DI AZZERARE: il wipe distrugge il workspace e il grafo
+    # live; se non c'e' almeno un PDF valido non si tocca nulla.
+    pdfs = [f for f in files
+            if f.filename and os.path.splitext(f.filename)[1].lower() == ".pdf"]
+    if not pdfs:
+        return JSONResponse(status_code=400, content={
+            "error": "Nessun PDF valido tra i file inviati: workspace invariato."})
     # FIX PERSISTENZA: nessun residuo da sessioni precedenti. Prima di salvare
     # i nuovi PDF si svuotano input e markdown convertiti. graph_out viene
     # pulito MA la sottocartella runs/ (storico progetti) e' preservata.
@@ -228,19 +252,34 @@ async def upload_files(files: list[UploadFile] = File(...), lang: str = Form("en
     with open(LANG_FILE, "w") as lf:
         lf.write(lang)
     saved = 0
-    for file in files:
-        if file.filename and file.filename.endswith(".pdf"):
-            file_location = os.path.join(PDF_DIR, os.path.basename(file.filename))
-            with open(file_location, "wb+") as file_object:
-                shutil.copyfileobj(file.file, file_object)
-            saved += 1
+    for file in pdfs:
+        file_location = os.path.join(PDF_DIR, os.path.basename(file.filename))
+        with open(file_location, "wb+") as file_object:
+            shutil.copyfileobj(file.file, file_object)
+        saved += 1
     return {"info": f"Workspace ripulito. Caricati {saved} file.", "saved": saved}
 
 
 def run_pipeline():
+    # UNA pipeline alla volta: il lock e' controllato anche dall'endpoint,
+    # qui si protegge l'esecuzione vera (double-check non bloccante).
+    if not PIPELINE_LOCK.acquire(blocking=False):
+        return
+    try:
+        _run_pipeline_body()
+    finally:
+        RUN_STATE["run_id"] = None
+        PIPELINE_LOCK.release()
+
+
+def _run_pipeline_body():
     lang_code = "en"
     if os.path.exists(LANG_FILE):
-        lang_code = open(LANG_FILE).read().strip() or "en"
+        lang_code = open(LANG_FILE).read().strip().lower() or "en"
+    # Defense in depth: pipeline.lang e' un file di workspace, potrebbe essere
+    # stato scritto a mano. Se non e' in whitelist si ricade sul default.
+    if lang_code not in ALLOWED_LANGS:
+        lang_code = "en"
 
     # Settings: forza CPU se richiesto (CUDA invisibile ai subprocess NLP)
     settings = {}
@@ -252,6 +291,9 @@ def run_pipeline():
     child_env = os.environ.copy()
     if settings.get("force_cpu"):
         child_env["CUDA_VISIBLE_DEVICES"] = ""
+    # Modello NLP scelto in UI: auto (lg, leggero) | trf (transformer, GPU).
+    # extract_svo.py traduce la scelta nel modello spaCy concreto.
+    child_env["ARACHNE_NLP_MODEL"] = str(settings.get("nlp_model", "auto"))
     # Log real-time nella UI: i figli devono flushare riga per riga.
     # Senza questo, stdout su pipe = buffer a blocchi 8KB = terminale muto
     # per tutta l'ingestione (bug UI run #7).
@@ -260,20 +302,29 @@ def run_pipeline():
     child_env["PYTHONWARNINGS"] = "ignore::FutureWarning"
 
     run_id = register_run(lang_code)
+    RUN_STATE["run_id"] = run_id
     final_graph = os.path.join(OUT_DIR, "graph_with_metrics.json")
 
     with open(LOG_FILE, "w") as log:
         log.write(f"Avvio Pipeline Arachne-Scholar (lang={lang_code}, run #{run_id})...\n")
+        # Argv LISTE, mai stringhe shell: nessuna interpolazione = nessuna
+        # injection, e i path con spazi funzionano senza quoting manuale.
         scripts = [
-            ("Ingestione PDF", f"{sys.executable} -u {BASE_DIR}/src/ingest_pdf.py {PDF_DIR} {MD_DIR}"),
-            ("Estrazione SVO", f"{sys.executable} -u {BASE_DIR}/src/extract_svo.py {MD_DIR} {OUT_DIR} {lang_code}"),
-            ("Calcolo Metriche SNA", f"{sys.executable} -u {BASE_DIR}/src/sna_metrics.py {OUT_DIR}/graph.json {final_graph}"),
+            ("Ingestione PDF", [sys.executable, "-u",
+                                os.path.join(BASE_DIR, "src", "ingest_pdf.py"),
+                                PDF_DIR, MD_DIR]),
+            ("Estrazione SVO", [sys.executable, "-u",
+                                os.path.join(BASE_DIR, "src", "extract_svo.py"),
+                                MD_DIR, OUT_DIR, lang_code]),
+            ("Calcolo Metriche SNA", [sys.executable, "-u",
+                                      os.path.join(BASE_DIR, "src", "sna_metrics.py"),
+                                      os.path.join(OUT_DIR, "graph.json"), final_graph]),
         ]
         try:
             for name, cmd in scripts:
                 log.write(f"\n--- ESECUZIONE: {name} ---\n")
                 log.flush()
-                process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                            stderr=subprocess.STDOUT, text=True, env=child_env)
                 for line in process.stdout or []:
                     log.write(line)
@@ -283,12 +334,20 @@ def run_pipeline():
                     log.write(f"\n!!! ERRORE nello step: {name} (rc={process.returncode})\n")
                     close_run(run_id, status="error")
                     return
-            # archivio immutabile del grafo prodotto (anti-sovrascrittura)
-            if os.path.exists(final_graph):
+            # Se il run e' stato eliminato dall'utente MENTRE la pipeline
+            # girava, non resuscitarlo: niente archivio, niente active_run
+            # (altrimenti riappare come zombie senza record DB).
+            conn = db()
+            still_there = conn.execute(
+                "SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone()
+            conn.close()
+            if still_there and os.path.exists(final_graph):
+                # archivio immutabile del grafo prodotto (anti-sovrascrittura)
                 archive = os.path.join(RUNS_DIR, f"run_{run_id}_graph.json")
                 shutil.copy2(final_graph, archive)
             close_run(run_id, graph_json=final_graph, status="done")
-            _set_active_run(run_id)
+            if still_there:
+                _set_active_run(run_id)
             log.write("\n=== PIPELINE COMPLETATA ===")
         except Exception as e:
             log.write(f"\n!!! ECCEZIONE: {e}\n")
@@ -297,6 +356,9 @@ def run_pipeline():
 
 @app.post("/api/run")
 async def start_pipeline(background_tasks: BackgroundTasks):
+    if PIPELINE_LOCK.locked():
+        return JSONResponse(status_code=409, content={
+            "error": "Pipeline già in esecuzione: attendi il termine del run corrente."})
     background_tasks.add_task(run_pipeline)
     return {"status": "started"}
 
@@ -314,8 +376,10 @@ def get_graph():
     """Grafo attivo. Risponde SEMPRE 200 con payload sanitizzato:
     - file mancante/corrotto/senza nodi validi -> {'nodes': [], 'edges': []}
     - nodi: solo dict con id valido, deduplicati, label/metrics garantiti
-    - archi: solo endpoint esistenti, niente self-loop, dedupe non orientato
-    Sigma.js/Graphology non ricevera' mai una struttura che lo faccia crashare."""
+    - archi: solo endpoint esistenti, niente self-loop.
+    Gli archi NON vengono deduplicati: direzioni opposte e relazioni
+    multiple tra la stessa coppia sono dati analitici reali (in/out degree,
+    ranking relazioni della Plancia dipendono da loro)."""
     empty = {"nodes": [], "edges": []}
     metrics_path = os.path.join(OUT_DIR, "graph_with_metrics.json")
     base_path = os.path.join(OUT_DIR, "graph.json")
@@ -350,8 +414,10 @@ def get_graph():
             clean_nodes.append(n)
         if not clean_nodes:
             return JSONResponse(content=empty)
-        # --- sanitizzazione archi: endpoint esistenti, no self-loop, dedupe
-        clean_edges, seen_pairs = [], set()
+        # --- sanitizzazione archi: endpoint esistenti, no self-loop.
+        # Direzione e relazione sono informazione: si tengono TUTTE le
+        # (source, target, relation) distinte, incluse le bidirezionali.
+        clean_edges = []
         for e in edges_raw:
             if not isinstance(e, dict):
                 continue
@@ -360,10 +426,6 @@ def get_graph():
                 continue
             if s not in seen_ids or t not in seen_ids:
                 continue
-            key = tuple(sorted((str(s), str(t))))
-            if key in seen_pairs:
-                continue
-            seen_pairs.add(key)
             e.setdefault("relation", "")
             clean_edges.append(e)
         out: dict = {"nodes": clean_nodes, "edges": clean_edges}
@@ -408,11 +470,13 @@ def list_runs():
         rows = conn.execute(
             "SELECT id, ts, lang, status, nodes, edges, nome_progetto FROM runs ORDER BY id DESC LIMIT 20"
         ).fetchall()
-        # SELF-HEALING: i run terminali il cui archivio e' sparito dal disco
+        # SELF-HEALING: i run COMPLETATI il cui archivio e' sparito dal disco
         # (cancellazione manuale, restore parziale, vecchi bug) non sono
         # apribili -> espunti dal registro. Mai piu' card fantasma.
+        # I run "error" invece NON hanno archivio per definizione: restano
+        # visibili, sono la sola traccia del fallimento per l'utente.
         ghosts = [r[0] for r in rows
-                  if r[3] in ("done", "error")
+                  if r[3] == "done"
                   and not os.path.exists(os.path.join(RUNS_DIR, f"run_{r[0]}_graph.json"))]
         if ghosts:
             conn.executemany("DELETE FROM runs WHERE id=?", [(g,) for g in ghosts])
@@ -474,7 +538,12 @@ async def delete_project(run_id: int):
     2. archivio grafo (run_{id}_graph.json) rimosso dal disco;
     3. se era il progetto attivo, stato live resettato (graph.json,
        graph_with_metrics.json, active_run.txt).
-    Gestisce anche gli archivi orfani senza record DB."""
+    Gestisce anche gli archivi orfani senza record DB.
+    Il run CORRENTE (pipeline in corso) non e' eliminabile: si rischierebbe
+    di resuscitarlo come zombie a fine pipeline."""
+    if PIPELINE_LOCK.locked() and RUN_STATE["run_id"] == run_id:
+        return JSONResponse(status_code=409, content={
+            "error": f"Il progetto #{run_id} è in elaborazione: attendi la fine del run."})
     conn = db()
     try:
         row = conn.execute("SELECT id FROM runs WHERE id = ?", (run_id,)).fetchone()
