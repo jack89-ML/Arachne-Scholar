@@ -21,14 +21,14 @@ CPU (con `[warn] GPU non disponibile` nei log):
    `deploy.resources.reservations.devices`, presente negli YAML GPU).
 
 > ℹ️ L'accelerazione GPU dell'**OCR** NON dipende dallo stack del backend:
-> la usa Ollama sulla macchina dove gira (es. il server `192.168.1.144` con la
+> la usa Ollama sulla macchina dove gira (es. il server `SERVER-HOST` con la
 > sua installazione nativa). Se l'OCR remoto è già su GPU, non devi fare nulla.
 
 ---
 
 ## Scenario A — Solo backend in container, OCR su Ollama remoto (LAN)
 
-Layout attuale consigliato: Ollama resta quello nativo su `192.168.1.144`
+Layout attuale consigliato: Ollama resta quello nativo su `SERVER-HOST`
 (già con GPU e `glm-ocr`), Portainer deploya **solo il backend** su un host
 qualsiasi della LAN. Incolla in Portainer → Stacks:
 
@@ -44,7 +44,7 @@ services:
     volumes:
       - arachne_data:/app/data
     environment:
-      - OLLAMA_BASE_URL=http://192.168.1.144:11434
+      - OLLAMA_BASE_URL=http://SERVER-HOST:11434
       # - ARACHNE_NLP_MODEL=auto   # auto (lg, CPU) | trf (richiede GPU: vedi Scenario B)
     restart: unless-stopped
 
@@ -53,7 +53,7 @@ volumes:
 ```
 
 Verifica post-deploy: `http://<host>:8000/api/system/hardware` deve mostrare
-`"ocr_available": true` e `"ollama_url": "http://192.168.1.144:11434"`.
+`"ocr_available": true` e `"ollama_url": "http://SERVER-HOST:11434"`.
 
 ---
 

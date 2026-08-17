@@ -1,5 +1,5 @@
 #!/bin/bash
-# Restart Arachne-Scholar dashboard (192.168.1.89 produzione, porta 8001)
+# Restart Arachne-Scholar dashboard (SERVER-HOST produzione, porta 8001)
 pkill -f '[u]vicorn dashboard.app'
 sleep 2
 cd /tmp/arachne_prod/Arachne-Scholar

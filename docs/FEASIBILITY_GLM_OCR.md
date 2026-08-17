@@ -40,7 +40,7 @@ spaCy e torch 2.10 non supporterebbe comunque la P4 (sm_61).
 Architettura raccomandata (Tier 2, la nostra P4):
 
 ```
-┌──────────────────────── 192.168.1.89 ────────────────────────┐
+┌──────────────────────── SERVER-HOST ────────────────────────┐
 │ Ollama server (già attivo)  ◄── glm-ocr:latest (~2GB VRAM)   │
 │      ▲ /api/generate                    (accanto a gemma3)   │
 │ glmocr_venv dedicato (py3.12, torch CPU + glmocr[layout])    │
@@ -111,12 +111,12 @@ non un sostituto.
   6 classi di artefatti, conversione classica su PDF sintetico reale,
   fallback glm→classico, endpoint 200 + regressione `/api/system-check`.
 - `node --check` sul JS estratto: OK; tag `<script>` bilanciati.
-- Probe reale su 192.168.1.89: `Tesla P4, 7680MB, tier 2, layout cpu,
+- Probe reale su SERVER-HOST: `Tesla P4, 7680MB, tier 2, layout cpu,
   probe nvidia-smi` — esattamente il Tier 2 previsto.
 
 ## 8. Deploy del backend GLM-OCR (ESEGUITO 2026-07-27)
 
-Stato reale su 192.168.1.89:
+Stato reale su SERVER-HOST:
 
 - `ollama pull glm-ocr:latest` → OK (2.2GB, container Docker `ollama`)
 - venv `/tmp/glmocr_venv` (py3.12, torch 2.13.0+cpu, glmocr 0.1.5,
@@ -126,7 +126,7 @@ Stato reale su 192.168.1.89:
   localhost:11434, layout `PaddlePaddle/PP-DocLayoutV3_safetensors`
 - `settings.json` prod: `ocr_mode=auto`, `glmocr_bin`, `glmocr_config`,
   `glmocr_timeout=7200`
-- Endpoint live: `glmocr_available: true` su http://192.168.1.89:8001
+- Endpoint live: `glmocr_available: true` su http://SERVER-HOST:8001
 
 ### Pitfall trovati in produzione (reali, non teorici)
 
