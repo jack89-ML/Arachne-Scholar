@@ -41,6 +41,12 @@ Arachne separa nettamente **percezione** e **ragionamento**:
   **matematico, geometrico e sintattico** del linguaggio naturale — non
   campionamento.
 
+> **Ricerca companion: [hybrid-kg-paper](https://github.com/jack89-ML/hybrid-kg-paper).**
+> Arachne è il motore di produzione; hybrid-kg-paper è l'esperimento controllato
+> della stessa metodologia: stesso backbone deterministico spaCy, più l'arricchimento
+> LLM quantificato (relazioni semantiche, inferenze multi-hop, costo marginale) —
+> vedi il README del companion per le metriche.
+
 Lo stesso PDF produce **sempre lo stesso grafo**: stessa entità, stessa
 relazione, stessa metrica. Il risultato è una **mappa causale del pensiero
 umano** — deterministica, esatta e rigorosamente replicabile — su cui si può
